@@ -16,7 +16,7 @@ This is a [*Sublime Text*](https://www.sublimetext.com/) *2* and *3* package tha
 ## **How to install**
 
 ### **Manually**
-- Download a [release]().
+- Download a [release](https://github.com/Kapiainen/The-Subliming-Of-Isaac/releases).
 - Start *Sublime Text*.
 - Go to ***Preferences > Browse packages...*** in *Sublime Text*'s toolbar.
 - The **\Sublime Text N\Data\Packages** directory should open up.
