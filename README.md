@@ -40,7 +40,7 @@ Run the ***Scrape documentation*** command, which can be found in the ***command
 The ***Scrape documentation*** command will have to be executed whenever there are updates to the documentation. Some changes to the documentation may also require updating of this package.
 
 ## **Changelog**
-**Version 1.0.0 - YYYY/MM/DD:**
+**Version 1.0.0 - 2017/01/04:**
 - Initial release.
 
 ## **License**
