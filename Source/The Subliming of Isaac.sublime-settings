@@ -1,0 +1,4 @@
+{
+	//Absolute path to the 'LuaDocs' folder (e.g. '\Steam\SteamApps\common\The Binding of Isaac Rebirth\tools\LuaDocs').
+	"docs_path": ""
+}

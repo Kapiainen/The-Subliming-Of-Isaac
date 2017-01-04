@@ -1,0 +1,36 @@
+[
+	{
+	    "id": "preferences",
+	    "children":
+	    [
+	        {
+	            "caption": "Package Settings",
+	            "mnemonic": "P",
+	            "id": "package-settings",
+	            "children":
+	            [
+	                {
+	                    "caption": "The Subliming of Isaac",
+	                    "children":
+	                    [
+	                        {
+	                            "caption": "Settings – Default",
+	                            "command": "open_file", "args":
+	                            {
+	                                "file": "${packages}/The Subliming of Isaac/The Subliming of Isaac.sublime-settings"
+	                            }
+	                        },
+	                        {
+	                            "caption": "Settings – User",
+	                            "command": "open_file", "args":
+	                            {
+	                                "file": "${packages}/User/The Subliming of Isaac.sublime-settings"
+	                            }
+	                        }
+	                    ]
+	                }
+	            ]
+	        }
+	    ]
+	}
+]
