@@ -13,6 +13,8 @@ A Sublime Text 2 and 3 package for Lua scripting in *The Binding of Isaac: After
 ## **Description**
 This is a [*Sublime Text*](https://www.sublimetext.com/) *2* and *3* package that aims to provide a variety of features that are relevant to writing scripts for [*The Binding of Isaac: Afterbirth+*](http://bindingofisaac.com/) mods.
 
+![Example](Resources/documentation-browsing.png)
+
 ## **How to install**
 
 ### **Manually**
@@ -37,9 +39,18 @@ This is a [*Sublime Text*](https://www.sublimetext.com/) *2* and *3* package tha
 ### **Completions**
 Run the ***Scrape documentation*** command, which can be found in the ***command palette*** (CTRL+SHIFT+P on Windows) of *Sublime Text*, to process the official Lua documentation included in *The Binding of Isaac: Afterbirth+*. You now have access to completions for e.g. public member functions and attributes of classes. The completions include fields, which can be cycled between, for any function parameters that may be defined in the function signature. Some useful information is also included in the completion descriptions (whether the completion is for a function or an attribute, the return type of a function, and the name of the class or namespace that the completion originates from).
 
-The ***Scrape documentation*** command will have to be executed whenever there are updates to the documentation. Some changes to the documentation may also require updating of this package.
+### **Documentation browsing**
+Information scraped from the official Lua documentation can be browsed and viewed within *Sublime Text* by running the ***Browse documentation*** command. The aforementioned command allows one to browse through the scraped information via *Sublime Text*'s quick panel. Certain information (e.g. all classes with their functions and attributes, a single class' functions and attributes, an enums' members) can also be outputted to a read-only view with syntax highlighting. A new menu entry will show at the top of the quick panel when it is possible to also show information in a view.
+
+The ***Scrape documentation*** command will have to be executed whenever there are updates to the documentation and sometimes when this package is updated. Some changes to the documentation may also require updating of this package to keep up support.
 
 ## **Changelog**
+**Version 1.1.0 - YYYY/MM/DD:**
+- Added documentation browsing feature. Includes custom syntax highlighting (Sublime Text 3 only for now).
+- Updated documentation in settings file.
+- Fixed function parameter scraping.
+- Fixed exemption of scraping certain class documentation files.
+
 **Version 1.0.0 - 2017/01/04:**
 - Initial release.
 

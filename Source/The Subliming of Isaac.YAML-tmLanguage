@@ -1,0 +1,70 @@
+# [PackageDev] target_format: plist, ext: tmLanguage
+---
+name: The Subliming of Isaac
+scopeName: source.subliming_of_isaac_documentation
+fileTypes: []
+uuid: 79d7f1d7-7ff6-4352-a719-12007a661f3c
+
+patterns:
+- comment: Main title
+  name: keyword.other
+  match: (?i)^afterbirth\+ api\s.*$
+- comment: Class title
+  name: support.class
+  match: (?i)^\s*[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)* class.*$
+- comment: Enum members title
+  name: constant.language
+  match: (?i)^\s*members:.*$
+- comment: Namespace title
+  name: meta.namespace
+  match: (?i)^\s*([_a-z][_a-z0-9]*) (namespace).*$
+  captures:
+    '1': {name: variable.other}
+    '2': {name: keyword.other}
+- comment: Enumerator title
+  name: meta.enumerator
+  match: (?i)^\s*([_a-z][_a-z0-9]*) (enumerator).*$
+  captures:
+    '1': {name: constant.language}
+    '2': {name: keyword.other}
+- comment: Enum title
+  name: meta.enum
+  match: (?i)^\s*([_a-z][_a-z0-9]*) (enum).*$
+  captures:
+    '1': {name: constant.numeric}
+    '2': {name: keyword.other}
+- comment: Description
+  name: comment.line
+  match: (?i)^\s*description:.*$
+- comment: Function section
+  name: entity.name
+  match: (?i)^\s*(?:functions:|no functions\.).*$
+- comment: Function signature
+  name: meta.function.signature
+  begin: (?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(
+  beginCaptures:
+    '1': {name: storage.type}
+    '2': {name: entity.name}
+  end: \)\s*$
+  patterns:
+  - include: '#parameter'
+- comment: Attribute section
+  name: variable.language
+  match: (?i)^\s*(?:attributes:|no attributes\.).*$
+- comment: Attribute
+  name: meta.attribute
+  match: (?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$
+  captures:
+    '1': {name: storage.type}
+    '2': {name: variable.language}
+
+repository:
+  parameter:
+    patterns:
+    - comment: Function parameter
+      name: meta.function.signature.pattern
+      match: (?i)([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)(\s+[_a-z][_a-z0-9]*)?
+      captures:
+        '1': {name: storage.type}
+        '2': {name: variable.language}
+...

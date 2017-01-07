@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>fileTypes</key>
+	<array/>
+	<key>name</key>
+	<string>The Subliming of Isaac</string>
+	<key>patterns</key>
+	<array>
+		<dict>
+			<key>comment</key>
+			<string>Main title</string>
+			<key>match</key>
+			<string>(?i)^afterbirth\+ api\s.*$</string>
+			<key>name</key>
+			<string>keyword.other</string>
+		</dict>
+		<dict>
+			<key>comment</key>
+			<string>Class title</string>
+			<key>match</key>
+			<string>(?i)^\s*[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)* class.*$</string>
+			<key>name</key>
+			<string>support.class</string>
+		</dict>
+		<dict>
+			<key>comment</key>
+			<string>Enum members title</string>
+			<key>match</key>
+			<string>(?i)^\s*members:.*$</string>
+			<key>name</key>
+			<string>constant.language</string>
+		</dict>
+		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>variable.other</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+			</dict>
+			<key>comment</key>
+			<string>Namespace title</string>
+			<key>match</key>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*) (namespace).*$</string>
+			<key>name</key>
+			<string>meta.namespace</string>
+		</dict>
+		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>constant.language</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+			</dict>
+			<key>comment</key>
+			<string>Enumerator title</string>
+			<key>match</key>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*) (enumerator).*$</string>
+			<key>name</key>
+			<string>meta.enumerator</string>
+		</dict>
+		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>constant.numeric</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+			</dict>
+			<key>comment</key>
+			<string>Enum title</string>
+			<key>match</key>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*) (enum).*$</string>
+			<key>name</key>
+			<string>meta.enum</string>
+		</dict>
+		<dict>
+			<key>comment</key>
+			<string>Description</string>
+			<key>match</key>
+			<string>(?i)^\s*description:.*$</string>
+			<key>name</key>
+			<string>comment.line</string>
+		</dict>
+		<dict>
+			<key>comment</key>
+			<string>Function section</string>
+			<key>match</key>
+			<string>(?i)^\s*(?:functions:|no functions\.).*$</string>
+			<key>name</key>
+			<string>entity.name</string>
+		</dict>
+		<dict>
+			<key>begin</key>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(</string>
+			<key>beginCaptures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>storage.type</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>entity.name</string>
+				</dict>
+			</dict>
+			<key>comment</key>
+			<string>Function signature</string>
+			<key>end</key>
+			<string>\)\s*$</string>
+			<key>name</key>
+			<string>meta.function.signature</string>
+			<key>patterns</key>
+			<array>
+				<dict>
+					<key>include</key>
+					<string>#parameter</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>comment</key>
+			<string>Attribute section</string>
+			<key>match</key>
+			<string>(?i)^\s*(?:attributes:|no attributes\.).*$</string>
+			<key>name</key>
+			<string>variable.language</string>
+		</dict>
+		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>storage.type</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>variable.language</string>
+				</dict>
+			</dict>
+			<key>comment</key>
+			<string>Attribute</string>
+			<key>match</key>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$</string>
+			<key>name</key>
+			<string>meta.attribute</string>
+		</dict>
+	</array>
+	<key>repository</key>
+	<dict>
+		<key>parameter</key>
+		<dict>
+			<key>patterns</key>
+			<array>
+				<dict>
+					<key>captures</key>
+					<dict>
+						<key>1</key>
+						<dict>
+							<key>name</key>
+							<string>storage.type</string>
+						</dict>
+						<key>2</key>
+						<dict>
+							<key>name</key>
+							<string>variable.language</string>
+						</dict>
+					</dict>
+					<key>comment</key>
+					<string>Function parameter</string>
+					<key>match</key>
+					<string>(?i)([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)(\s+[_a-z][_a-z0-9]*)?</string>
+					<key>name</key>
+					<string>meta.function.signature.pattern</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>scopeName</key>
+	<string>source.subliming_of_isaac_documentation</string>
+	<key>uuid</key>
+	<string>79d7f1d7-7ff6-4352-a719-12007a661f3c</string>
+</dict>
+</plist>

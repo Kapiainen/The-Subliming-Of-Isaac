@@ -1,4 +1,5 @@
 {
 	//Absolute path to the 'LuaDocs' folder (e.g. '\Steam\SteamApps\common\The Binding of Isaac Rebirth\tools\LuaDocs').
+	//Backslashes have to be escaped ('\\Steam\\..') or replaced with forwardslashes ('/Steam/..').
 	"docs_path": ""
 }
