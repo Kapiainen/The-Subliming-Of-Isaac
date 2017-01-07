@@ -113,15 +113,25 @@
 		</dict>
 		<dict>
 			<key>begin</key>
-			<string>(?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(</string>
+			<string>(?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(</string>
 			<key>beginCaptures</key>
 			<dict>
 				<key>1</key>
 				<dict>
 					<key>name</key>
-					<string>storage.type</string>
+					<string>keyword.other</string>
 				</dict>
 				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+				<key>3</key>
+				<dict>
+					<key>name</key>
+					<string>storage.type</string>
+				</dict>
+				<key>4</key>
 				<dict>
 					<key>name</key>
 					<string>entity.name</string>
@@ -155,9 +165,19 @@
 				<key>1</key>
 				<dict>
 					<key>name</key>
-					<string>storage.type</string>
+					<string>keyword.other</string>
 				</dict>
 				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+				<key>3</key>
+				<dict>
+					<key>name</key>
+					<string>storage.type</string>
+				</dict>
+				<key>4</key>
 				<dict>
 					<key>name</key>
 					<string>variable.language</string>
@@ -166,7 +186,7 @@
 			<key>comment</key>
 			<string>Attribute</string>
 			<key>match</key>
-			<string>(?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$</string>
+			<string>(?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$</string>
 			<key>name</key>
 			<string>meta.attribute</string>
 		</dict>

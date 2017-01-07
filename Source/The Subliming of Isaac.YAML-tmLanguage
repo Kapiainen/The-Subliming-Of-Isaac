@@ -41,10 +41,12 @@ patterns:
   match: (?i)^\s*(?:functions:|no functions\.).*$
 - comment: Function signature
   name: meta.function.signature
-  begin: (?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(
+  begin: (?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(
   beginCaptures:
-    '1': {name: storage.type}
-    '2': {name: entity.name}
+    '1': {name: keyword.other}
+    '2': {name: keyword.other}
+    '3': {name: storage.type}
+    '4': {name: entity.name}
   end: \)\s*$
   patterns:
   - include: '#parameter'
@@ -53,10 +55,12 @@ patterns:
   match: (?i)^\s*(?:attributes:|no attributes\.).*$
 - comment: Attribute
   name: meta.attribute
-  match: (?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$
+  match: (?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$
   captures:
-    '1': {name: storage.type}
-    '2': {name: variable.language}
+    '1': {name: keyword.other}
+    '2': {name: keyword.other}
+    '3': {name: storage.type}
+    '4': {name: variable.language}
 
 repository:
   parameter:

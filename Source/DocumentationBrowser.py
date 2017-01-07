@@ -16,6 +16,8 @@ KEY_PARAMETERS = "Parameters"
 KEY_RETURNS = "Returns"
 KEY_TYPE = "Type"
 KEY_INHERITS_FROM = "Inherits from"
+KEY_CONST = "Const"
+KEY_STATIC = "Static"
 
 DEFAULT_VALUE_NO_DESCRIPTION = "None"
 
@@ -170,7 +172,12 @@ class SublimingOfIsaacBrowseDocumentationCommand(sublime_plugin.WindowCommand):
 			for function_name, function in a_dict.items():
 				return_type = ""
 				if function.get(KEY_RETURNS, None):
-					return_type = "%s " % function[KEY_RETURNS][KEY_TYPE]
+					return_type = ""
+					if function[KEY_RETURNS].get(KEY_STATIC, False):
+						return_type = "static "
+					if function[KEY_RETURNS].get(KEY_CONST, False):
+						return_type = "const %s" % return_type
+					return_type = "%s%s " % (return_type, function[KEY_RETURNS].get(KEY_TYPE, "<Type missing>"))
 				function_parameters = function.get(KEY_PARAMETERS, [])
 				if function_parameters:
 					function_parameters = ["%s %s" % (param[KEY_TYPE], param[KEY_NAME]) for param in function_parameters]
@@ -185,7 +192,13 @@ class SublimingOfIsaacBrowseDocumentationCommand(sublime_plugin.WindowCommand):
 			def get_class_attributes(a_dict):
 				attributes = []
 				for attribute_name, attribute in a_dict.items():
-					attributes.append([attribute_name, "%s %s" % (attribute.get(KEY_TYPE, "<Type missing>"), attribute_name), "Description: %s" % attribute.get(KEY_DESCRIPTION, DEFAULT_VALUE_NO_DESCRIPTION)])
+					type_ = ""
+					if attribute.get(KEY_STATIC, False):
+						type_ = "static "
+					if attribute.get(KEY_CONST, False):
+						type_ = "const %s" % type_
+					type_ = "%s%s" % (type_, attribute.get(KEY_TYPE, "<Type missing>"))
+					attributes.append([attribute_name, "%s %s" % (type_.strip(), attribute_name), "Description: %s" % attribute.get(KEY_DESCRIPTION, DEFAULT_VALUE_NO_DESCRIPTION)])
 				attributes = sorted(attributes, key=itemgetter(0))
 				attributes = [attribute[1:] for attribute in attributes]
 				return attributes

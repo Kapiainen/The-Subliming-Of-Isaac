@@ -45,6 +45,12 @@ Information scraped from the official Lua documentation can be browsed and viewe
 The ***Scrape documentation*** command will have to be executed whenever there are updates to the documentation and sometimes when this package is updated. Some changes to the documentation may also require updating of this package to keep up support.
 
 ## **Changelog**
+**Version x.x.x - YYYY/MM/DD:**
+- Added setting for the scope that the generated completions belong to.
+- 'const' and 'static' keywords are now properly handled when scraping attributes and function return types.
+- Updated syntax highlighting to support 'const' and 'static' keywords.
+- Fixed bug where certain attributes and functions were not added to scraping results.
+
 **Version 1.1.0 - 2017/01/07:**
 - Added documentation browsing feature. Includes custom syntax highlighting (Sublime Text 3 only for now).
 - Updated documentation in settings file.

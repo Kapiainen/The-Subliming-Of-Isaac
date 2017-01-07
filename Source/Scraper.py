@@ -6,15 +6,17 @@ REGEX_CLASS_NAME = re.compile(r"<div class=\"title\">(.+?) class reference</div>
 REGEX_NAMESPACE_NAME = re.compile(r"<div class=\"title\">(.+?) namespace reference</div>", re.IGNORECASE)
 REGEX_INHERITS_FROM = re.compile(r"inherited from <a.+?>(.+?)</a>", re.IGNORECASE)
 REGEX_FUNCTION_SIGNATURE = re.compile(r"(?:<td class=\"memitemleft\".+?>(?P<returns>.+?))?&#.+?;</td><td class=\"memitemright\".+?><a.+?>(?P<name>.+?)</a>\s+\((?P<parameters>.+?)?\)", re.IGNORECASE)
-REGEX_FUNCTION_RETURNS = re.compile(r"(?:(?P<const>const)\s*)?(?:(?P<static>static)\s*)?(?:<a.+?>(?P<type1>.+?)</a>|(?P<type2>[a-z:]+))(?:\s+&amp;)?", re.IGNORECASE)
-REGEX_FUNCTION_PARAMETER = re.compile(r"(?P<type>[a-z:]+)(?:\s+(?P<name>[a-z]+))?", re.IGNORECASE)
+REGEX_FUNCTION_RETURNS = re.compile(r"(?:(?:(?P<const>const)\s*)?(?:(?P<static>static)\s*)?)*(?:(?P<type>[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*))(?:\s+&amp;)?", re.IGNORECASE)
+REGEX_FUNCTION_PARAMETER = re.compile(r"(?P<type>([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*))(?:\s+(?P<name>[_a-z][_a-z0-9]*))?", re.IGNORECASE)
 REGEX_ATTRIBUTE = re.compile(r"<td class=\"memitemleft\".+?>(?P<type>.+?)&#.+?;</td><td class=\"memitemright\".+?><a.+?>(?P<name>.+?)</a>", re.IGNORECASE)
-REGEX_ATTRIBUTE_TYPE = re.compile(r"(?:(?P<const>const)\s*)?(?:(?P<static>static)\s*)?(?:<a.+?>(?P<type1>.+?)</a>|(?P<type2>[a-z:]+))(?:\s+&amp;)?", re.IGNORECASE)
+REGEX_ATTRIBUTE_TYPE = re.compile(r"(?:(?:(?P<const>const)\s*)?(?:(?P<static>static)\s*)?)*(?:(?P<type>[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*))(?:\s+&amp;)?", re.IGNORECASE)
 REGEX_ENUM_NAME = re.compile(r"<h2 class=\"memtitle\"><span class=\"permalink\">.+?</span>(.+?)</h2>", re.IGNORECASE)
 REGEX_ENUM_MEMBER = re.compile(r"<td class=\"fieldname\"><a.+?</a>(?P<name>.+?)&#.+?<td class=\"fielddoc\">(?:<p>(?P<desc>.+?)</p>)?", re.IGNORECASE)
 REGEX_DESCRIPTION = re.compile(r"<td class=\"mdescright\">(.+?)<a.+?</td>", re.IGNORECASE)
 REGEX_HTML_TAG_REPLACER = re.compile(r"<.*?>")
 
+KEY_CONST = "Const"
+KEY_STATIC = "Static"
 KEY_ATTRIBUTES = "Attributes"
 KEY_CLASSES = "Classes"
 KEY_DESCRIPTION = "Description"
@@ -35,6 +37,7 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 	def run(self):
 		settings = sublime.load_settings('The Subliming of Isaac.sublime-settings')
 		if settings:
+			self.scope = settings.get("completions_scope", "source.lua")
 			path = settings.get("docs_path", None)
 			if path and os.path.isdir(path):
 				self.main(path)
@@ -117,18 +120,17 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 					function = {}
 					function_returns = function_signature_match.group("returns")
 					if function_returns:
+						function_returns = REGEX_HTML_TAG_REPLACER.sub("", function_returns)
 						function_returns_dict = {}
 						function_returns_match = REGEX_FUNCTION_RETURNS.search(function_returns)
 						if function_returns_match:
-#							const = function_returns_match.group("const")
-#							if const:
-#								function_returns_dict["const"] = True
-#							static = function_returns_match.group("static")
-#							if static:
-#								function_returns_dict["static"] = True
-							return_type = function_returns_match.group("type1")
-							if not return_type:
-								return_type = function_returns_match.group("type2")
+							const = function_returns_match.group("const")
+							if const:
+								function_returns_dict[KEY_CONST] = True
+							static = function_returns_match.group("static")
+							if static:
+								function_returns_dict[KEY_STATIC] = True
+							return_type = function_returns_match.group("type")
 							function_returns_dict[KEY_TYPE] = return_type
 							function[KEY_RETURNS] = function_returns_dict
 					function_name = function_signature_match.group("name")
@@ -150,26 +152,21 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 				else:
 					attribute_signature_match = REGEX_ATTRIBUTE.search(line)
 					if attribute_signature_match:
-						if function:
-							class_functions[function[KEY_NAME]] = function
-							del function[KEY_NAME]
-							function = None
 						attribute_name = attribute_signature_match.group("name")
-						attribute_type_match = REGEX_ATTRIBUTE_TYPE.search(attribute_signature_match.group("type"))
+						attribute_type_string = REGEX_HTML_TAG_REPLACER.sub("", attribute_signature_match.group("type"))
+						attribute_type_match = REGEX_ATTRIBUTE_TYPE.search(attribute_type_string)
 						if attribute_type_match:
 							if attribute:
 								class_attributes[attribute[KEY_NAME]] = attribute
 								del attribute[KEY_NAME]
 							attribute = {KEY_NAME: attribute_name}
-#							const = attribute_type_match.group("const")
-#							if const:
-#								attribute["const"] = True
-#							static = attribute_type_match.group("static")
-#							if static:
-#								attribute["static"] = True
-							attribute_type = attribute_type_match.group("type1")
-							if not attribute_type:
-								attribute_type = attribute_type_match.group("type2")
+							const = attribute_type_match.group("const")
+							if const:
+								attribute[KEY_CONST] = True
+							static = attribute_type_match.group("static")
+							if static:
+								attribute[KEY_STATIC] = True
+							attribute_type = attribute_type_match.group("type")
 							attribute[KEY_TYPE] = attribute_type
 					else:
 						description_match = REGEX_DESCRIPTION.search(line)
@@ -180,6 +177,13 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 								function[KEY_DESCRIPTION] = description_string
 							elif attribute:
 								attribute[KEY_DESCRIPTION] = description_string
+			if function:
+				class_functions[function[KEY_NAME]] = function
+				del function[KEY_NAME]
+				function = None
+			if attribute:
+				class_attributes[attribute[KEY_NAME]] = attribute
+				del attribute[KEY_NAME]
 		if class_functions:
 			class_interface[KEY_FUNCTIONS] = class_functions
 		if class_attributes:
@@ -210,18 +214,17 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 					function = {}
 					function_returns = function_signature_match.group("returns")
 					if function_returns:
+						function_returns = REGEX_HTML_TAG_REPLACER.sub("", function_returns)
 						function_returns_dict = {}
 						function_returns_match = REGEX_FUNCTION_RETURNS.search(function_returns)
 						if function_returns_match:
-#							const = function_returns_match.group("const")
-#							if const:
-#								function_returns_dict["const"] = True
-#							static = function_returns_match.group("static")
-#							if static:
-#								function_returns_dict["static"] = True
-							return_type = function_returns_match.group("type1")
-							if not return_type:
-								return_type = function_returns_match.group("type2")
+							const = function_returns_match.group("const")
+							if const:
+								function_returns_dict[KEY_CONST] = True
+							static = function_returns_match.group("static")
+							if static:
+								function_returns_dict[KEY_STATIC] = True
+							return_type = function_returns_match.group("type")
 							function_returns_dict[KEY_TYPE] = return_type
 							function[KEY_RETURNS] = function_returns_dict
 					function_name = function_signature_match.group("name")
@@ -352,5 +355,5 @@ class SublimingOfIsaacScrapeDocsCommand(sublime_plugin.WindowCommand):
 							}
 						)
 		if completions:
-			return {"scope": "source.lua ", "completions": completions}
+			return {"scope": self.scope, "completions": completions}
 		return None
