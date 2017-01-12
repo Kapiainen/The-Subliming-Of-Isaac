@@ -118,7 +118,7 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
-**Version x.x.x - YYYY/MM/DD:**
+**Version 1.3.0 - 2017/01/12:**
 - Added a system that implements context-sensitive completions and partial linting.
 - Added new settings:
     - ***enable_linter***
