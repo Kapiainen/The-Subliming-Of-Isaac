@@ -10,38 +10,49 @@ patterns:
   name: keyword.other
   match: (?i)^afterbirth\+ api\s.*$
 - comment: Class title
-  name: support.class
-  match: (?i)^\s*[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)* class.*$
+  name: meta.class.subliming_of_isaac_documentation
+  match: (?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*) (class)(?:(\s+inherits\s+from)\s+([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+(class))?.*$
+  captures:
+    '1': {name: support.class}
+    '2': {name: keyword.other}
+    '3': {name: keyword.other}
+    '4': {name: support.class}
+    '5': {name: keyword.other}
 - comment: Enum members title
-  name: constant.language
-  match: (?i)^\s*members:.*$
+  name: meta.enummember.subliming_of_isaac_documentation
+  match: (?i)^\s*(members:).*$
+  captures:
+    '1': {name: constant.language}
 - comment: Namespace title
-  name: meta.namespace
+  name: meta.namespace.subliming_of_isaac_documentation
   match: (?i)^\s*([_a-z][_a-z0-9]*) (namespace).*$
   captures:
     '1': {name: variable.other}
     '2': {name: keyword.other}
 - comment: Enumerator title
-  name: meta.enumerator
+  name: meta.enumerator.subliming_of_isaac_documentation
   match: (?i)^\s*([_a-z][_a-z0-9]*) (enumerator).*$
   captures:
     '1': {name: constant.language}
     '2': {name: keyword.other}
 - comment: Enum title
-  name: meta.enum
+  name: meta.enum.subliming_of_isaac_documentation
   match: (?i)^\s*([_a-z][_a-z0-9]*) (enum).*$
   captures:
     '1': {name: constant.numeric}
     '2': {name: keyword.other}
 - comment: Description
-  name: comment.line
-  match: (?i)^\s*description:.*$
+  name: meta.description
+  match: (?i)^\s*(constructor)?((?:\s+\-\s+)?description:.*)$
+  captures:
+    '1': {name: keyword.other}
+    '2': {name: comment.line}
 - comment: Function section
   name: entity.name
   match: (?i)^\s*(?:functions:|no functions\.).*$
 - comment: Function signature
-  name: meta.function.signature
-  begin: (?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(
+  name: meta.function.signature.subliming_of_isaac_documentation
+  begin: (?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\(
   beginCaptures:
     '1': {name: keyword.other}
     '2': {name: keyword.other}
@@ -54,7 +65,7 @@ patterns:
   name: variable.language
   match: (?i)^\s*(?:attributes:|no attributes\.).*$
 - comment: Attribute
-  name: meta.attribute
+  name: meta.attribute.subliming_of_isaac_documentation
   match: (?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$
   captures:
     '1': {name: keyword.other}

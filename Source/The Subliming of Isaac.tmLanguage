@@ -17,20 +17,56 @@
 			<string>keyword.other</string>
 		</dict>
 		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>support.class</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+				<key>3</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+				<key>4</key>
+				<dict>
+					<key>name</key>
+					<string>support.class</string>
+				</dict>
+				<key>5</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+			</dict>
 			<key>comment</key>
 			<string>Class title</string>
 			<key>match</key>
-			<string>(?i)^\s*[_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)* class.*$</string>
+			<string>(?i)^\s*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*) (class)(?:(\s+inherits\s+from)\s+([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+(class))?.*$</string>
 			<key>name</key>
-			<string>support.class</string>
+			<string>meta.class.subliming_of_isaac_documentation</string>
 		</dict>
 		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>constant.language</string>
+				</dict>
+			</dict>
 			<key>comment</key>
 			<string>Enum members title</string>
 			<key>match</key>
-			<string>(?i)^\s*members:.*$</string>
+			<string>(?i)^\s*(members:).*$</string>
 			<key>name</key>
-			<string>constant.language</string>
+			<string>meta.enummember.subliming_of_isaac_documentation</string>
 		</dict>
 		<dict>
 			<key>captures</key>
@@ -51,7 +87,7 @@
 			<key>match</key>
 			<string>(?i)^\s*([_a-z][_a-z0-9]*) (namespace).*$</string>
 			<key>name</key>
-			<string>meta.namespace</string>
+			<string>meta.namespace.subliming_of_isaac_documentation</string>
 		</dict>
 		<dict>
 			<key>captures</key>
@@ -72,7 +108,7 @@
 			<key>match</key>
 			<string>(?i)^\s*([_a-z][_a-z0-9]*) (enumerator).*$</string>
 			<key>name</key>
-			<string>meta.enumerator</string>
+			<string>meta.enumerator.subliming_of_isaac_documentation</string>
 		</dict>
 		<dict>
 			<key>captures</key>
@@ -93,15 +129,28 @@
 			<key>match</key>
 			<string>(?i)^\s*([_a-z][_a-z0-9]*) (enum).*$</string>
 			<key>name</key>
-			<string>meta.enum</string>
+			<string>meta.enum.subliming_of_isaac_documentation</string>
 		</dict>
 		<dict>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>keyword.other</string>
+				</dict>
+				<key>2</key>
+				<dict>
+					<key>name</key>
+					<string>comment.line</string>
+				</dict>
+			</dict>
 			<key>comment</key>
 			<string>Description</string>
 			<key>match</key>
-			<string>(?i)^\s*description:.*$</string>
+			<string>(?i)^\s*(constructor)?((?:\s+\-\s+)?description:.*)$</string>
 			<key>name</key>
-			<string>comment.line</string>
+			<string>meta.description</string>
 		</dict>
 		<dict>
 			<key>comment</key>
@@ -113,7 +162,7 @@
 		</dict>
 		<dict>
 			<key>begin</key>
-			<string>(?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*)\(</string>
+			<string>(?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*\s+)?([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\(</string>
 			<key>beginCaptures</key>
 			<dict>
 				<key>1</key>
@@ -142,7 +191,7 @@
 			<key>end</key>
 			<string>\)\s*$</string>
 			<key>name</key>
-			<string>meta.function.signature</string>
+			<string>meta.function.signature.subliming_of_isaac_documentation</string>
 			<key>patterns</key>
 			<array>
 				<dict>
@@ -188,7 +237,7 @@
 			<key>match</key>
 			<string>(?i)^\s*(?:(const\s)?(static\s)?)*([_a-z][_a-z0-9]*(?:::[_a-z][_a-z0-9]*)*)\s+([_a-z][_a-z0-9]*).*$</string>
 			<key>name</key>
-			<string>meta.attribute</string>
+			<string>meta.attribute.subliming_of_isaac_documentation</string>
 		</dict>
 	</array>
 	<key>repository</key>
