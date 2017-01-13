@@ -1633,9 +1633,9 @@ class Parser(object):
 									namespace_function = self.is_namespace_function_in_api(a_node)
 									if namespace_function:
 										result = namespace_function.get(ScopeObjectEnum.TYPE, "nil")
-									else:
-										self.raise_error(ParsingError, "Could not figure out what '%s' is"
-											% a_node)
+#									else:
+#										self.raise_error(ParsingError, "Could not figure out what '%s' is"
+#											% a_node)
 			else:
 				class_ = self.is_class_in_api(a_previous)
 				if class_:
