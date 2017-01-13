@@ -1476,7 +1476,7 @@ class Parser(object):
 				self.expect(TokenEnum.RIGHT_BRACKET)
 				self.expect(TokenEnum.OP_ASSIGN)
 				value = self.parse_expected_expression()
-				field.append(TableKey(key, value))
+				fields.append(TableKey(key, value))
 			elif self.peek(TokenEnum.NAME, 0):
 				if self.peek(TokenEnum.OP_ASSIGN, 1):
 					key = self.parse_identifier()
