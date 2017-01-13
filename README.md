@@ -118,6 +118,9 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
+**Version 1.3.1 - 2017/01/13:**
+- Temporarily disabled a semantic check that would raise an exception when encountering any name that is not explicitly declared in the current script.
+
 **Version 1.3.0 - 2017/01/12:**
 - Added a system that implements context-sensitive completions and partial linting.
 - Added new settings:
