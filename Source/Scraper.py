@@ -19,6 +19,7 @@ elif PYTHON_VERSION[0] >= 3:
 
 
 REGEX_CLASS_NAME = re.compile(r"<div class=\"title\">(.+?) class reference</div>", re.IGNORECASE)
+#REGEX_CLASS_NAME = re.compile(r"<div class=\"title\">(?:.+?::)*(.+?) class reference</div>", re.IGNORECASE)
 REGEX_NAMESPACE_NAME = re.compile(r"<div class=\"title\">(.+?) namespace reference</div>", re.IGNORECASE)
 REGEX_INHERITS_FROM = re.compile(r"inherited from <a.+?>(.+?)</a>", re.IGNORECASE)
 REGEX_FUNCTION_SIGNATURE = re.compile(r"(?:<td class=\"memitemleft\".+?>(?P<returns>.+?))?&#.+?;</td><td class=\"memitemright\".+?><a.+?>(?P<name>.+?)</a>\s+\((?P<parameters>.+?)?\)", re.IGNORECASE)

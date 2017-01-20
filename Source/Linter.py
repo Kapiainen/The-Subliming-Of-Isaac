@@ -4,7 +4,7 @@ luaparse (https://github.com/oxyc/luaparse), which is a Lua parser implemented i
 to implement certain additional checks and custom exceptions that are used to implement context-sensitive
 completions. luaparse's license is included in the 'luaparse-LICENSE' file.
 """
-import sublime, sublime_plugin, os, sys, json, re, copy, time, threading
+import sublime, sublime_plugin, os, sys, json, re, copy, time, threading, cgi
 PYTHON_VERSION = sys.version_info
 if PYTHON_VERSION[0] == 2:
 	import imp
@@ -17,26 +17,30 @@ if PYTHON_VERSION[0] == 2:
 	shared_functions_module = os.path.join(os.getcwd(), "SharedFunctions.py")
 	imp.load_source("SharedFunctions", shared_functions_module)
 	del shared_functions_module
+	lua_standard_libraries_module = os.path.join(os.getcwd(), "LuaStandardLibraries.py")
+	imp.load_source("LuaStandardLibraries", lua_standard_libraries_module)
+	del lua_standard_libraries_module
 	import Scraper
 	from SharedEnums import APIKeyEnum
 	from SharedEnums import CompletionKeyEnum
 	import SharedFunctions
+	import LuaStandardLibraries
 elif PYTHON_VERSION[0] >= 3:
 	from . import Scraper
 	from .SharedEnums import CompletionKeyEnum
 	from .SharedEnums import APIKeyEnum
 	from . import SharedFunctions
+	from . import LuaStandardLibraries
 
 # This is left here in case it is ever necessary to look at the execution time of specific functions.
 #from functools import wraps
-#
 #def timed(f):
 #	@wraps(f)
 #	def wrapper(*args, **kwds):
 #		start = time.time()
 #		result = f(*args, **kwds)
 #		elapsed = time.time() - start
-#		SharedFunctions.print("%s took %f time to finish" % (f.__name__, elapsed*1000))
+#		print("%s took %f time to finish" % (f.__name__, elapsed*1000))
 #		return result
 #	return wrapper
 
@@ -57,27 +61,8 @@ class PreprocessorCommandEnum(object):
 	{} = 0 or more times
 	[] = optional
 	"""
-	RETURN_TYPE = "RETURN_TYPE" # Used to specify the type returned by a function
+	RETURN_TYPES = "RETURN_TYPES" # Used to specify the type returned by a function
 	VARIABLE_TYPES = "VARIABLE_TYPES" # Used to specify the types of variables in any variable declaration
-
-class ScopeObjectEnum(object):
-	"""
-	Enum for keys used in dictionaries generated specifically for the scope list.
-	"""
-	IS_CLASS = "Is class"
-	IS_ENUM = "Is enum"
-	IS_FUNCTION = "Is function"
-	IS_NAMESPACE = "Is namespace"
-	IS_PARAMETER = "Is parameter"
-	IS_VARIABLE = "Is variable"
-	IS_CONSTRUCTOR = "Is constructor"
-	PARAMETERS = "Parameters"
-	TYPE = "Type"
-	RETURNS = "Returns"
-	NAME = "Name"
-	FUNCTIONS = "Functions"
-	ATTRIBUTES = "Attributes"
-	MEMBERS = "Members"
 
 class TokenEnum(object):
 	"""
@@ -352,9 +337,8 @@ class TableConstructorExpression(object):
 		self.fields = a_fields
 
 class LocalVariables(object):
-	def __init__(self, a_variables, a_initial_values):
+	def __init__(self, a_variables):
 		self.variables = a_variables
-		self.initial_values = a_initial_values
 
 class IndexExpression(object):
 	def __init__(self, a_base, a_expression):
@@ -416,6 +400,7 @@ class NodeResult(object):
 # Custom exceptions raised by the lexer and parser.
 class LexingError(Exception):
 	def __init__(self, a_message, a_line, a_column, a_character):
+		super(LexingError, self).__init__()
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
@@ -423,13 +408,14 @@ class LexingError(Exception):
 
 class ParsingError(Exception):
 	def __init__(self, a_message, a_line, a_column):
+		super(ParsingError, self).__init__()
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
 
 class ExpectedFunctionParameterExpressionError(ParsingError):
 	def __init__(self, a_message, a_line, a_column, a_function, a_nth_parameter):
-		super(ParsingError, self).__init__(a_message, a_line, a_column)
+		super(ExpectedFunctionParameterExpressionError, self).__init__(a_message, a_line, a_column)
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
@@ -438,14 +424,14 @@ class ExpectedFunctionParameterExpressionError(ParsingError):
 
 class ExpectedExpressionError(ParsingError):
 	def __init__(self, a_message, a_line, a_column):
-		super(ParsingError, self).__init__(a_message, a_line, a_column)
+		super(ExpectedExpressionError, self).__init__(a_message, a_line, a_column)
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
 
 class ExpectedNameError(ParsingError):
 	def __init__(self, a_message, a_line, a_column, a_base, a_preceding_operator_type):
-		super(ParsingError, self).__init__(a_message, a_line, a_column)
+		super(ExpectedNameError, self).__init__(a_message, a_line, a_column)
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
@@ -454,22 +440,164 @@ class ExpectedNameError(ParsingError):
 
 class ExpectedPreprocessorTypeArgumentError(ParsingError):
 	def __init__(self, a_message, a_line, a_column):
-		super(ParsingError, self).__init__(a_message, a_line, a_column)
+		super(ExpectedPreprocessorTypeArgumentError, self).__init__(a_message, a_line, a_column)
 		self.message = a_message
 		self.line = a_line
 		self.column = a_column
 
+# Lua types
+class LuaVariable(object):
+	def __init__(self, a_name, a_value = None, a_type = None):
+		self._name = a_name
+		self._value = None
+		self._description = ""
+		self._type = a_type
+
+	def __str__(self):
+		if self._type:
+			return self._type
+		else:
+			return "variable"
+
+	def get_name(self):
+		return self._name
+
+	def get_value(self):
+		return self._value
+
+	def get_description(self):
+		return self._description
+
+class LuaNil(LuaVariable):
+	def __init__(self, a_name):
+		super(LuaNil, self).__init__(a_name, None)
+		self._name = a_name
+		self._value = None
+
+	def __str__(self):
+		return "nil"
+
+class LuaBoolean(LuaVariable):
+	def __init__(self, a_name, a_value):
+		super(LuaBoolean, self).__init__(a_name, a_value)
+		assert isinstance(a_value, bool)
+		self._name = a_name
+		self._value = a_value
+
+	def __str__(self):
+		return "boolean"
+
+class LuaNumber(LuaVariable):
+	def __init__(self, a_name, a_value):
+		super(LuaNumber, self).__init__(a_name, a_value)
+		if not isinstance(a_value, int):
+			assert isinstance(a_value, float)
+		self._name = a_name
+		self._value = a_value
+
+	def __str__(self):
+		return "number"
+
+class LuaString(LuaVariable):
+	def __init__(self, a_name, a_value):
+		super(LuaString, self).__init__(a_name, a_value)
+		if PYTHON_VERSION[0] == 2:
+			if not isinstance(a_value, str):
+				assert isinstance(a_value, unicode)
+		elif PYTHON_VERSION[0] >= 3:
+			assert isinstance(a_value, str)
+		self._name = a_name
+		self._value = a_value
+
+	def __str__(self):
+		return "string"
+
+class LuaFunction(LuaVariable):
+	def __init__(self, a_name, a_parameters=[], a_return_types=[]):
+		super(LuaFunction, self).__init__(a_name, None)
+		self._name = a_name
+		self._value = None
+		self._type = None
+		self._parameters = a_parameters
+		self._return_types = a_return_types
+
+	def __str__(self):
+		if self._type:
+			return self._type
+		else:
+			return "function"
+
+	def add_parameter(self, a_param):
+		pass
+
+	def get_parameters(self):
+		return self._parameters
+
+	def get_return_types(self):
+		return self._return_types
+
+class LuaTable(LuaVariable):
+	def __init__(self, a_name, a_fields = []):
+		super(LuaTable, self).__init__(a_name, None)
+		self._name = a_name
+		self._value = None
+		self._type = ""
+		self._fields = {}
+		self._inherited_fields = None
+		if a_fields:
+			i = 1
+			for field in a_fields:
+				if isinstance(field, TableKey):
+					self.set_field(field.value, field.key)
+				elif isinstance(field, TableKeyString):
+					self.set_field(field.value, field.key)
+				elif isinstance(field, TableValue):
+					self.set_field(field.value, i)
+					i += 1
+
+	def __str__(self):
+		if self._type != "":
+			return self._type
+		else:
+			return "table"
+
+	def has_field(self, a_key):
+		if self.get_field(a_key):
+			return True
+		return False
+
+	def get_field(self, a_key):
+		exists = self._fields.get(a_key, None)
+		if not exists and self._inherited_fields:
+			exists = self._inherited_fields.get(a_key, None)
+		return exists
+
+	def set_field(self, a_value, a_key):
+		if isinstance(a_key, Literal) or isinstance(a_key, Identifier):
+			self._fields[a_key.value] = a_value
+		else:
+			self._fields[a_key] = a_value
+
+	def get_fields(self):
+		for key, value in self._fields.items():
+			yield key, value
+		if self._inherited_fields:
+			for key, value in self._inherited_fields.items():
+				yield key, value
+
+#class LuaUserdata(LuaVariable):
+#	def __init__(self, a_name):
+#		super(LuaVariable, self).__init__(a_name, None)
+#		self._name = a_name
+#		self._value = None
+
+class LuaThread(LuaVariable):
+	def __init__(self, a_name):
+		super(LuaThread, self).__init__(a_name, None)
+		self._name = a_name
+		self._value = None
+
 class Parser(object):
-	__slots__ = [
-		"afterbirth_api",
-		"token_regex",
-		"keyword_regex",
-		"preprocessor_command_type_annotation_regex",
-		"tokens_to_process", # List of tokens waiting to be consumed by the parser
-		"processed_tokens", # List of tokens that have been consumed by the parser
-		"scope", # List of dicts
-		"base_api_scope" # Dict
-	]
 	def __init__(self):
 		# Regex patterns used to generate tokens.
 		token_specifications = [
@@ -517,7 +645,6 @@ class Parser(object):
 			(TokenEnum.UNMATCHED, r"."),
 		]
 		self.token_regex = re.compile("|".join("(?P<t%s>%s)" % pair for pair in token_specifications))
-
 		# Regex patterns used to match Lua keywords when a TokenEnum.NAME token has been generated.
 		keyword_specifications = [
 			(TokenEnum.KW_AND, r"and"),
@@ -544,17 +671,17 @@ class Parser(object):
 			(TokenEnum.KW_WHILE, r"while"),
 		]
 		self.keyword_regex = re.compile("|".join("(?P<t%s>^%s$)" % pair for pair in keyword_specifications))
-
 		# Regex pattern used to match type annotation preprocessor commands.
 		self.preprocessor_command_type_annotation_regex = re.compile(
-			"^(?:(?P<variable_types>[_a-zA-Z0-9, \t]+))?(?:\s*\-\>\s*(?P<return_type>[_a-zA-Z][_a-zA-Z0-9]*))?",
+			"^(?:(?P<variable_types>[_a-zA-Z0-9, \t]+))?(?:\s*\-\>\s*(?P<return_types>[_a-zA-Z0-9, \t]+))?",
 			re.MULTILINE)
-
 		# JSON-compatible object containing information scraped from the Afterbirth+ API.
 		self.afterbirth_api = None
-
 		# The base scope that is generated once from the information in self.afterbirth_api
 		self.base_api_scope = None
+		self.api_classes = None
+		self.api_enums = None
+		self.standard_libraries_scope = None
 
 	#@timed
 	def preprocessor_commands(self, a_command_string, a_line, a_column):
@@ -573,9 +700,14 @@ class Parser(object):
 						raise ExpectedPreprocessorTypeArgumentError("Expected a type annotation", a_line,
 							a_column)
 				yield PreprocessorCommand(PreprocessorCommandEnum.VARIABLE_TYPES, arguments)
-			return_type = command_match.group("return_type")
-			if return_type:
-				yield PreprocessorCommand(PreprocessorCommandEnum.RETURN_TYPE, return_type)
+			return_types = command_match.group("return_types")
+			if return_types:
+				arguments = [type_.strip() for type_ in return_types.split(",")]
+				for arg in arguments:
+					if arg == "":
+						raise ExpectedPreprocessorTypeArgumentError("Expected a type annotation", a_line,
+							a_column)
+				yield PreprocessorCommand(PreprocessorCommandEnum.RETURN_TYPES, arguments)
 			elif "->" in a_command_string:
 				raise ExpectedPreprocessorTypeArgumentError("Expected a return type annotation", a_line,
 					a_column)
@@ -628,35 +760,236 @@ class Parser(object):
 
 	#@timed
 	def generate_api_scope(self):
-		api = {}
-		api[APIKeyEnum.FUNCTIONS] = {}
-		for function_key, function in self.afterbirth_api.get(APIKeyEnum.FUNCTIONS, {}).items():
-			returns = function.get(APIKeyEnum.RETURNS, None)
+		generated_functions = []
+		generated_tables = []
+		def parse_function_to_lua(a_function_key, a_function):
+			returns = a_function.get(APIKeyEnum.RETURNS, [])
 			if returns:
-				returns = returns.get(APIKeyEnum.TYPE, "nil")
-			api[APIKeyEnum.FUNCTIONS][function_key] = {ScopeObjectEnum.IS_FUNCTION: True,
-				ScopeObjectEnum.TYPE: returns,
-				ScopeObjectEnum.PARAMETERS: function.get(APIKeyEnum.PARAMETERS, [])}
-		api[APIKeyEnum.NAMESPACES] = {}
-		for namespace_key, namespace in self.afterbirth_api.get(APIKeyEnum.NAMESPACES, {}).items():
-			api[APIKeyEnum.NAMESPACES][namespace_key] = {ScopeObjectEnum.IS_NAMESPACE: True,
-				ScopeObjectEnum.FUNCTIONS: namespace.get(APIKeyEnum.FUNCTIONS, {})}
-		api[APIKeyEnum.CLASSES] = {}
+				returns = returns.get(APIKeyEnum.TYPE, [])
+				if returns: # API functions only seem to return one value
+					returns = [returns]
+			parameters = []
+			i = 1
+			for param in a_function.get(APIKeyEnum.PARAMETERS, []):
+				param_name = param.get(APIKeyEnum.NAME, "param%s" % i)
+				if param_name == "":
+					param_name = "param%s" % i
+				lua_var = LuaVariable(param_name, a_type=param.get(APIKeyEnum.TYPE, None))
+				parameters.append(lua_var)
+				i += 1
+			lua_func = LuaFunction(a_function_key, parameters, returns)
+			generated_functions.append(lua_func)
+			lua_func._description = a_function.get(APIKeyEnum.DESCRIPTION, "")
+			return lua_func
+
+		api = {}
+		# Classes
+		self.api_classes = {}
+		self.api_enums = {}
 		for class_key, class_ in self.afterbirth_api.get(APIKeyEnum.CLASSES, {}).items():
-			api[APIKeyEnum.CLASSES][class_key] = {ScopeObjectEnum.IS_CLASS: True,
-				ScopeObjectEnum.FUNCTIONS: class_.get(APIKeyEnum.FUNCTIONS, {}),
-				ScopeObjectEnum.ATTRIBUTES: class_.get(APIKeyEnum.ATTRIBUTES, {})}
+			lua_table = LuaTable(class_key)
+			generated_tables.append(lua_table)
+			constructor = None
 			for function_key, function in class_.get(APIKeyEnum.FUNCTIONS, {}).items():
-				if function.get(APIKeyEnum.IS_CONSTRUCTOR):
-					api[APIKeyEnum.FUNCTIONS][function_key] = {ScopeObjectEnum.IS_FUNCTION: True,
-					ScopeObjectEnum.IS_CONSTRUCTOR: True,
-					ScopeObjectEnum.TYPE: class_key,
-					ScopeObjectEnum.PARAMETERS: function.get(APIKeyEnum.PARAMETERS, [])}
-		api[APIKeyEnum.ENUMS] = {}
+				lua_func = parse_function_to_lua(function_key, function)
+				if not constructor and function_key == class_key:
+					constructor = lua_func
+					constructor._type = "constructor"
+				else:
+					lua_table.set_field(lua_func, function_key)
+			for attribute_key, attribute in class_.get(APIKeyEnum.ATTRIBUTES, {}).items():
+				lua_var = LuaVariable(attribute_key, a_type=attribute.get(APIKeyEnum.TYPE, None))
+				lua_table.set_field(lua_var, attribute_key)
+			if constructor:
+				api[class_key] = constructor # Constructor that is available to the mod author
+			self.api_classes[class_key] = lua_table # A Lua table-like object that contains all class attributes and methods
+		# group___functions
+		for function_key, function in self.afterbirth_api.get(APIKeyEnum.FUNCTIONS, {}).items():
+			if function_key.startswith("Isaac::"):
+				function_key = function_key[7:]
+			lua_func = parse_function_to_lua(function_key, function)
+			api[function_key] = lua_func
+		# Enums
 		for enum_key, enum in self.afterbirth_api.get(APIKeyEnum.ENUMS, {}).items():
-			api[APIKeyEnum.ENUMS][enum_key] = {ScopeObjectEnum.IS_ENUM: True,
-			ScopeObjectEnum.MEMBERS: enum.get(APIKeyEnum.MEMBERS, {})}
+			lua_table = LuaTable(enum_key)
+			i = 0
+			for member in enum.get(APIKeyEnum.MEMBERS, []):
+				#TODO
+				# 'i' is not actually the real value in all cases, mostly just as a placeholder
+				# The actual value should be scraped from the API documentation
+				lua_table.set_field(LuaNumber(member[APIKeyEnum.NAME], i), member[APIKeyEnum.NAME])
+				i += 1
+			lua_table._type = "enum"
+			if api.get(enum_key, False):
+				SharedFunctions.debug_print("%s is already in the API, overriding with an enum"
+					% enum_key, api[enum_key])
+			api[enum_key] = lua_table
+			self.api_enums[enum_key] = lua_table
+		# Namespaces
+		for namespace_key, namespace in self.afterbirth_api.get(APIKeyEnum.NAMESPACES, {}).items():
+			if namespace_key == "Isaac":
+				lua_table = LuaTable(namespace_key)
+				generated_tables.append(lua_table)
+				mod_table = LuaTable("Mod")
+				mod_functions = {}
+				mod_functions_list = ["AddCallback", "HasModData", "LoadModData", "RegisterMod",
+					"RemoveModData", "SaveModData"]
+				generated_tables.append(mod_table)
+				for function_key, function in namespace.get(APIKeyEnum.FUNCTIONS, {}).items():
+					if function_key in mod_functions_list:
+						mod_functions[function_key] = function
+						del function[APIKeyEnum.PARAMETERS][0]
+					else:
+						lua_func = parse_function_to_lua(function_key, function)
+						lua_table.set_field(lua_func, function_key)
+				if api.get(namespace_key, False):
+					SharedFunctions.debug_print("%s is already in the API, overriding with a namespace"
+						% namespace_key, api[namespace_key])
+				api[namespace_key] = lua_table
+				# Mod stuff
+				for function_key, function in mod_functions.items():
+					if function_key == "RegisterMod":
+						lua_func = parse_function_to_lua(function_key, function)
+						lua_func._return_types = ["Mod"]
+						api["RegisterMod"] = lua_func
+					else:
+						lua_func = parse_function_to_lua(function_key, function)
+						mod_table.set_field(lua_func, function_key)
+				if self.api_classes.get("Mod", None):
+					SharedFunctions.debug_print(
+						"Mod is already in the API classes, overriding with custom Mod class")
+				self.api_classes["Mod"] = mod_table
+			else:
+				lua_table = LuaTable(namespace_key)
+				generated_tables.append(lua_table)
+				for function_key, function in namespace.get(APIKeyEnum.FUNCTIONS, {}).items():
+					lua_func = parse_function_to_lua(function_key, function)
+					lua_table.set_field(lua_func, function_key)
+				for attribute_key, attribute in namespace.get(APIKeyEnum.ATTRIBUTES, {}).items():
+					lua_var = LuaVariable(attribute_key, a_type=attribute.get(APIKeyEnum.TYPE, None))
+					lua_table.set_field(lua_var, attribute_key)
+				if api.get(namespace_key, False):
+					SharedFunctions.debug_print("%s is already in the API, overriding with a namespace"
+						% namespace_key, api[namespace_key])
+				api[namespace_key] = lua_table
+		# Convert all of the LuaVariable instances, which have _type != None, into corresponding LuaTable instances
+		def finalize_function(a_function):
+			clean = True
+			new_parameters = []
+			for parameter in a_function.get_parameters():
+				if isinstance(parameter, LuaVariable):
+					if parameter._type:
+						if parameter._type == "integer" or parameter._type == "float":
+							new_parameters.append(self.get_lua_variable("number", parameter.get_name()))
+						else:
+							new_parameters.append(self.get_lua_variable(parameter._type,
+								parameter.get_name()))
+						clean = False
+					else:
+						new_parameters.append(parameter)
+				else:
+					new_parameters.append(parameter)
+			a_function._parameters = new_parameters
+			new_return_types = []
+			for return_type in a_function.get_return_types():
+				if isinstance(return_type, LuaVariable):
+					if return_type._type:
+						if return_type._type == "integer" or return_type._type == "float":
+							new_return_types.append(self.get_lua_variable("number", return_type.get_name()))
+						else:
+							new_return_types.append(self.get_lua_variable(return_type._type,
+								return_type.get_name()))
+						clean = False
+					else:
+						new_return_types.append(return_type)
+				else:
+					new_return_types.append(return_type)
+			a_function._return_types = new_return_types
+			return clean
+
+		def finalize_table(a_table):
+			clean = True
+			for key, value in a_table.get_fields():
+				if isinstance(value, LuaVariable):
+					if value._type:
+						if value._type == "integer" or value._type == "float":
+							a_table.set_field(self.get_lua_variable("number", key), key)
+						else:
+							a_table.set_field(self.get_lua_variable(value._type, key), key)
+						clean = False
+			return clean
+		# Class pass
+		for class_ in generated_tables:
+			finalize_table(class_)
+		# Functions pass
+		for function in generated_functions:
+			finalize_function(function)
 		return api
+
+	#@timed
+	def generate_standard_libraries_scope(self):
+		standard_libraries = {}
+		def convert_json_to_lua(a_library, a_name):
+			lua_table = LuaTable(a_name)
+			lua_table._type = "std. lib."
+			for function_key, function in a_library.get(APIKeyEnum.FUNCTIONS, {}).items():
+				return_types = function.get(APIKeyEnum.RETURNS, [])
+				if return_types:
+					return_types = [type_[APIKeyEnum.TYPE] for type_ in return_types]
+				parameters = []
+				i = 1
+				for param in function.get(APIKeyEnum.PARAMETERS, []):
+					param_name = param.get(APIKeyEnum.NAME, "param%s" % i)
+					if param_name == "":
+						param_name = "param%s" % i
+					lua_var = LuaVariable(param_name, a_type=param.get(APIKeyEnum.TYPE, None))
+					parameters.append(lua_var)
+					i += 1
+				lua_func = LuaFunction(function_key, parameters, return_types)
+				lua_func._description = function.get(APIKeyEnum.DESCRIPTION, "")
+				lua_table.set_field(lua_func, function_key)
+			for attribute_key, attribute in a_library.get(APIKeyEnum.ATTRIBUTES, {}).items():
+				lua_variable = self.get_lua_variable(attribute.get(APIKeyEnum.TYPE, ""), attribute_key)
+				lua_table.set_field(lua_variable, attribute_key)
+			return {a_name: lua_table}
+		basic = convert_json_to_lua(LuaStandardLibraries.get_basic(), "basic").get("basic", None)
+		if basic:
+			for key, value in basic.get_fields():
+				standard_libraries[key] = value
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_coroutine(), "coroutine"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_package(), "package"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_string(), "string"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_utf8(), "utf8"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_table(), "table"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_math(), "math"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_io(), "io"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_file(), "file"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_os(), "os"))
+		standard_libraries.update(convert_json_to_lua(LuaStandardLibraries.get_debug(), "debug"))
+		return standard_libraries
+
+	#@timed
+	def get_initial_scope(self, a_scope = None):
+		# Scope structure:
+		# 0 = Lua standard libraries
+		# 1 = API functions, namespaces, enums, and classes.
+		# 2 = Global variables and functions.
+		# 3 = Script scope.
+		# 4 ... n = Local scopes nested within the script scope.
+		if a_scope: # Use the scope that was given as 'a_scope'.
+			scope = [self.standard_libraries_scope, self.base_api_scope]
+			scope.extend(a_scope)
+			return scope
+		else: # Generate the initial scope
+			if not self.afterbirth_api: # Load Afterbirth+ API, if that has not already been done.
+				self.afterbirth_api = SharedFunctions.load_afterbirth_api()
+				if not self.afterbirth_api:
+					SharedFunctions.error_message("Failed to load Afterbirth+ API. May require scraping")
+					return None
+				self.base_api_scope = self.generate_api_scope()
+			if not self.standard_libraries_scope:
+				self.standard_libraries_scope = self.generate_standard_libraries_scope()
+			return [self.standard_libraries_scope, self.base_api_scope, {}, {}]
 
 	#@timed
 	def tokenize_lines(self, a_source_code, a_starting_line_index):
@@ -673,24 +1006,6 @@ class Parser(object):
 		return lines
 
 	#@timed
-	def get_initial_scope(self, a_scope = None):
-		# Scope structure:
-		# 0 = API functions, namespaces, enums, and classes.
-		# 1 = Global variables and functions.
-		# 2 = Script scope.
-		# 3 ... n = Local scopes nested within the script scope.
-		if a_scope: # Use the scope that was given as 'a_scope'.
-			return a_scope
-		else: # Generate the initial scope
-			if not self.afterbirth_api: # Load Afterbirth+ API, if that has not already been done.
-				self.afterbirth_api = SharedFunctions.load_afterbirth_api()
-				if not self.afterbirth_api:
-					SharedFunctions.error_message("Failed to load Afterbirth+ API. May require scraping")
-					return None
-				self.base_api_scope = self.generate_api_scope()
-			return [self.base_api_scope, {}, {}]
-
-	#@timed
 	def parse(self, a_source_code, a_starting_line_index = 0, a_scope = None, a_completing = False):
 		lines = self.tokenize_lines(a_source_code, a_starting_line_index)
 		self.scope = self.get_initial_scope(a_scope)
@@ -704,12 +1019,12 @@ class Parser(object):
 			self.processed_tokens = []
 			statements = self.parse_line()
 			if statements:
-				yield [line_number, statements, copy.copy(self.scope)]
+				yield [line_number, statements, copy.copy(self.scope[2:])]
 				# 0 = Line number.
 				# 1 = List of statements.
 				# 2 = Copy of self.scope after parsing this line of Lua code. Used for caching purposes.
-		if not a_completing and len(self.scope) > 3:
-			self.raise_error(ParsingError, "Found %d unterminated scopes" % (len(self.scope) - 3))
+		if not a_completing and len(self.scope) > 4:
+			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
 
 	#@timed
 	def raise_error(self, a_error_class, a_message, a_line = None, a_column = None,
@@ -757,94 +1072,37 @@ class Parser(object):
 				TOKEN_DESCRIPTION[self.tokens_to_process[0].type]))
 
 	#@timed
-	def push_to_scope(self, a_dict, a_is_local = False):
-		name = str(a_dict[APIKeyEnum.NAME])
+	def push_to_scope(self, a_lua_variable, a_is_local = False):
+		assert isinstance(a_lua_variable, LuaVariable)
+		name = a_lua_variable.get_name()#str(a_dict[APIKeyEnum.NAME])
+		if self.scope[0].get(name, None):
+			self.raise_error(ParsingError, "'%s' is a name reserved by the Lua standard libraries" % name)
+		elif self.scope[1].get(name, None):
+			self.raise_error(ParsingError, "'%s' is a name reserved by the Afterbirth+ API" % name)
 		if a_is_local:
-			self.scope[-1][name] = a_dict
+			self.scope[-1][name] = a_lua_variable
 		else:
 			modified = False
 			for scope in reversed(self.scope):
 				if scope.get(name, None):
 					modified = True
-					scope[name] = a_dict
+					scope[name] = a_lua_variable
 					break
 			if not modified:
-				self.scope[1][name] = a_dict
-
-	#@timed
-	def is_function_in_scope(self, a_name):
-		a_name = str(a_name)
-		exists = self.is_in_scope(a_name)
-		if exists:
-			if exists.get(ScopeObjectEnum.IS_FUNCTION, None):
-				return exists
-		return None
+				self.scope[2][name] = a_lua_variable
 
 	#@timed
 	def is_variable_in_scope(self, a_name):
 		a_name = str(a_name)
-		a_name = str(a_name)
 		exists = self.is_in_scope(a_name)
 		if exists:
-			if exists.get(ScopeObjectEnum.IS_VARIABLE, None):
+			if isinstance(exists, LuaVariable):
 				return exists
-		return None
-
-	#@timed
-	def is_parameter_in_scope(self, a_name):
-		a_name = str(a_name)
-		exists = self.is_in_scope(a_name)
-		if exists:
-			if exists.get(ScopeObjectEnum.IS_PARAMETER, None):
-				return exists
-		return None
-
-	#@timed
-	def is_namespace_in_api(self, a_name):
-		a_name = str(a_name)
-		exists = self.scope[0][APIKeyEnum.NAMESPACES].get(a_name, None)
-		if exists:
-			return exists
-		return None
-
-	#@timed
-	def is_namespace_function_in_api(self, a_name):
-		a_name = str(a_name)
-		for namespace_key, namespace in self.scope[0][APIKeyEnum.NAMESPACES].items():
-			namespace_functions = namespace.get(ScopeObjectEnum.FUNCTIONS, None)
-			if namespace_functions:
-				function = namespace_functions.get(a_name, None)
-				if function:
-					return function
-		return None
-
-	#@timed
-	def is_enum_in_api(self, a_name):
-		a_name = str(a_name)
-		exists = self.scope[0][APIKeyEnum.ENUMS].get(a_name, None)
-		if exists:
-			return exists
-		return None
-
-	#@timed
-	def is_class_in_api(self, a_name):
-		a_name = str(a_name)
-		exists = self.scope[0][APIKeyEnum.CLASSES].get(a_name, None)
-		if exists:
-			return exists
-		return None
-
-	#@timed
-	def is_function_in_api(self, a_name):
-		a_name = str(a_name)
-		exists = self.scope[0][APIKeyEnum.FUNCTIONS].get(a_name, None)
-		if exists:
-			return exists
 		return None
 
 	#@timed
 	def is_in_scope(self, a_name):
-		a_name = str(a_name)
+		#a_name = str(a_name)
 		for scope in reversed(self.scope):
 			existing = scope.get(a_name, None)
 			if existing:
@@ -923,6 +1181,43 @@ class Parser(object):
 		return self.parse_assignment_or_call_statement()
 
 	#@timed
+	def get_lua_variable(self, a_type_string, a_name):
+		var = {
+			"nil": LuaNil(a_name),
+			"boolean": LuaBoolean(a_name, False),
+			"number": LuaNumber(a_name, 0),
+			"string": LuaString(a_name, ""),
+			"function": LuaFunction(a_name),
+			"table": LuaTable(a_name),
+			"thread": LuaThread(a_name)
+			#"userdata": LuaUserdata(a_name)
+		}.get(a_type_string, None)
+		if not var:
+			class_ = self.api_classes.get(a_type_string, None)
+			if class_:
+				var = LuaTable(a_name)
+				var._inherited_fields = class_._fields
+				var._type = class_.get_name()
+			else:
+				enum = self.api_enums.get(a_type_string, None)
+				if enum:
+					var = LuaVariable(a_name)
+					#var._inherited_fields = enum._fields
+					var._type = enum.get_name()
+				else:
+					if self.standard_libraries_scope:
+						standard_library_object = self.standard_libraries_scope.get(a_type_string, None)
+						if standard_library_object:
+							var = LuaTable(a_name)
+							var._inherited_fields = standard_library_object._fields
+							var._type = standard_library_object.get_name()
+						else:
+							var = LuaVariable(a_name)
+					else:
+						var = LuaVariable(a_name)
+		return var
+
+	#@timed
 	def parse_local_statement(self):
 		if self.peek(TokenEnum.NAME, 0): # Variable(s)
 			variables = []
@@ -933,31 +1228,58 @@ class Parser(object):
 				name = self.parse_identifier()
 				variables.append(name)
 			if self.consume(TokenEnum.OP_ASSIGN):
-				initial_values.append(self.parse_expected_expression())
+				init_expr = self.parse_expected_expression()
+				init_val = self.node_visitor(init_expr)
+				if isinstance(init_val, list):
+					initial_values.extend(init_val)
+				else:
+					initial_values.append(init_val)
 				while self.consume(TokenEnum.COMMA):
-					initial_values.append(self.parse_expected_expression())
-			# Add variables to scope
-			i = 0
-			initial_values_count = len(initial_values)
-			while i < len(variables):
-				type_ = "undefined"
-				if i < initial_values_count:
-					type_ = str(self.node_visitor(initial_values[i]))
-				self.push_to_scope({ScopeObjectEnum.NAME: variables[i],
-					ScopeObjectEnum.TYPE: type_, ScopeObjectEnum.IS_VARIABLE: True}, True)
-				i += 1
-			while self.consume(TokenEnum.PREPROCESSOR_COMMAND):
+					init_expr = self.parse_expected_expression()
+					init_val = self.node_visitor(init_expr)
+					if isinstance(init_val, list):
+						initial_values.extend(init_val)
+					else:
+						initial_values.append(init_val)
+			# Optional type annotation
+			variable_types = []
+			if self.consume(TokenEnum.PREPROCESSOR_COMMAND):
 				value = self.processed_tokens[-1].value
 				if value.command == PreprocessorCommandEnum.VARIABLE_TYPES:
-					i = 0
-					arguments_count = len(value.arguments)
-					while i < len(variables):
-						if i < arguments_count:
-							self.push_to_scope({ScopeObjectEnum.NAME: variables[i],
-								ScopeObjectEnum.TYPE: value.arguments[i],
-								ScopeObjectEnum.IS_VARIABLE: True}, False)
-						i += 1
-			return LocalVariables(variables, initial_values)
+					for type_ in value.arguments:
+						variable_types.append(type_)
+			# Figure out corresponding Lua* class
+			final_variables = []
+			i = 0
+			variable_types_count = len(variable_types)
+			initial_values_count = len(initial_values)
+			for var in variables:
+				if i < variable_types_count:
+					lua_var = self.get_lua_variable(variable_types[i], str(var))
+					if lua_var:
+						final_variables.append(lua_var)
+					else:
+						final_variables.append(LuaVariable(str(var)))
+						SharedFunctions.debug_print(
+							"Could not figure out local variable type based on type annotation %s"
+							% variable_types[i])
+				elif i < initial_values_count:
+					lua_var = initial_values[i]
+					if lua_var:
+						lua_var._name = str(var)
+						final_variables.append(lua_var)
+					else:
+						final_variables.append(LuaVariable(str(var)))
+						SharedFunctions.debug_print(
+							"Could not figure out local variable type based on initial value %s"
+							% expr_result)
+				else:
+					final_variables.append(LuaNil(str(var)))
+				i += 1
+			# Add variables to scope
+			for var in final_variables:
+				self.push_to_scope(var, True)
+			return LocalVariables(final_variables)
 		elif self.consume(TokenEnum.KW_FUNCTION):
 			name = self.parse_identifier()
 			return self.parse_function_declaration(name, True)
@@ -991,8 +1313,6 @@ class Parser(object):
 	def is_base_type(self, a_type):
 		return {
 			"boolean": True,
-			"false": True,
-			"true": True,
 			"nil": True,
 			"string": True,
 			"number": True,
@@ -1004,39 +1324,19 @@ class Parser(object):
 		base = self.parse_identifier()
 		current_type = None
 		if not self.peek(TokenEnum.LEFT_PARENTHESIS, 0):
+#			print(str(base))
 			current_type = self.is_variable_in_scope(base)
 			if not current_type:
 				self.raise_error(ParsingError, "'%s' is not a known variable" % base)
-			current_type = current_type[APIKeyEnum.TYPE]
 		while self.consume(TokenEnum.DOT):
 			name = self.parse_identifier()
 			if not name:
 				self.raise_error(ExpectedNameError, "Expected a name", a_additional_arguments=TokenEnum.DOT)
-			if not self.is_base_type(current_type) and current_type != "undefined":
-				class_ = self.is_class_in_api(current_type)
-				if not class_:
-					self.raise_error(ParsingError, "'%s' is not a known class" % current_type)
-				attributes = class_.get(APIKeyEnum.ATTRIBUTES, {})
-				attribute = attributes.get(str(name), None)
-				if attribute:
-					current_type = attribute[APIKeyEnum.TYPE]
-				else:
-					self.raise_error(ParsingError, "'%s' does not have an attribute called '%s'"
-						% (current_type, name))
 			base = MemberExpression(base, TokenEnum.DOT, name)
 		if self.consume(TokenEnum.COLON):
 			name = self.parse_identifier()
 			if not name:
 				self.raise_error(ExpectedNameError, "Expected a name", a_additional_arguments=TokenEnum.COLON)
-			if not self.is_base_type(current_type) and current_type != "undefined":
-				class_ = self.is_class_in_api(current_type)
-				if not class_:
-					self.raise_error(ParsingError, "'%s' is not a known class" % current_type)
-				functions = class_.get(APIKeyEnum.FUNCTIONS, {})
-				function = functions.get(str(name), None)
-				if function:
-					self.raise_error(ParsingError, "'%s' already has a function called '%s'"
-						% (current_type, name))
 			base = MemberExpression(base, TokenEnum.COLON, name)
 		return base
 
@@ -1059,83 +1359,90 @@ class Parser(object):
 					break
 				else:
 					self.raise_error(ParsingError, "Expected a function parameter")
-
-		if isinstance(a_name, Identifier):
-			self.push_to_scope({ScopeObjectEnum.NAME: a_name, ScopeObjectEnum.IS_FUNCTION: True,
-				ScopeObjectEnum.PARAMETERS: parameters}, a_is_local)
-		self.create_scope()
-		for param in parameters:
-			if param != "...":
-				self.push_to_scope({ScopeObjectEnum.NAME: param, ScopeObjectEnum.IS_PARAMETER: True}, True)
-			else:
-				break
-
-		parameter_types_command = None
-		return_type_command = None
+		# Optional type annotation
+		parameter_types = []
+		return_types = []
 		while self.consume(TokenEnum.PREPROCESSOR_COMMAND):
 			value = self.processed_tokens[-1].value
-			if not parameter_types_command and value.command == PreprocessorCommandEnum.VARIABLE_TYPES:
-				parameter_types_command = value
-			if not return_type_command and value.command == PreprocessorCommandEnum.RETURN_TYPE:
-				return_type_command = value
-		parameter_types = []
-		if parameter_types_command:
-			i = 0
-			parameter_types_command_arguments_count = len(parameter_types_command.arguments)
-			while i < len(parameters):
-				if parameters[i] != "...":
-					if i < parameter_types_command_arguments_count:
-						self.push_to_scope({ScopeObjectEnum.NAME: parameters[i],
-							ScopeObjectEnum.IS_PARAMETER: True,
-							ScopeObjectEnum.TYPE: parameter_types_command.arguments[i]}, False)
-						parameter_types.append(parameter_types_command.arguments[i])
-				else:
-					break
-				i += 1
-
-		return_type = None
-		
-		if return_type_command:
-			return_type = return_type_command.arguments
-
-		new_parameters = []
+			if not parameter_types and value.command == PreprocessorCommandEnum.VARIABLE_TYPES:
+				for type_ in value.arguments:
+					parameter_types.append(type_)
+			elif not return_types and value.command == PreprocessorCommandEnum.RETURN_TYPES:
+				for type_ in value.arguments:
+					return_types.append(type_)
+		# Figure out corresponding Lua* class
+		final_parameters = []
 		i = 0
-		parameter_type_count = len(parameter_types)
-		while i < len(parameters):
-			if i < parameter_type_count:
-				new_parameters.append({ScopeObjectEnum.NAME: parameters[i],
-					ScopeObjectEnum.TYPE: parameter_types[i]})
+		parameter_types_count = len(parameter_types)
+		for param in parameters:
+			if param == "...":
+				final_parameters.append(LuaTable("arg", [TableKeyString("n", LuaNumber("n", 0))]))
+				break
 			else:
-				new_parameters.append({ScopeObjectEnum.NAME: parameters[i]})
+				if i < parameter_types_count:
+					lua_var = self.get_lua_variable(parameter_types[i], str(param))
+					if lua_var:
+						final_parameters.append(lua_var)
+					else:
+						final_parameters.append(LuaVariable(str(param)))
+						SharedFunctions.debug_print(
+							"Could not figure out function parameter type based on type annotation %s"
+							% parameter_types[i])
+				else:
+					final_parameters.append(LuaVariable(str(param)))
 			i += 1
-
-		if isinstance(a_name, Identifier):
-			if return_type:
-				self.push_to_scope({ScopeObjectEnum.NAME: a_name, ScopeObjectEnum.IS_FUNCTION: True,
-					ScopeObjectEnum.PARAMETERS: new_parameters,
-					ScopeObjectEnum.TYPE: return_type}, False)
+		final_return_types = []
+		for type_ in return_types:
+			lua_var = self.get_lua_variable(type_, "")
+			if lua_var:
+				final_return_types.append(lua_var)
 			else:
-				self.push_to_scope({ScopeObjectEnum.NAME: a_name, ScopeObjectEnum.IS_FUNCTION: True,
-					ScopeObjectEnum.PARAMETERS: new_parameters}, False)
-		elif (isinstance(a_name, MemberExpression) and a_name.operator_type == TokenEnum.COLON
-			and isinstance(a_name.base, Identifier)):
-			variable = self.is_variable_in_scope(a_name.base)
-			if variable:
-				if variable.get(ScopeObjectEnum.TYPE, "undefined") == "table":
-					functions = variable.get(ScopeObjectEnum.FUNCTIONS, None)
-					table_function = None
-					if parameter_types:
-						table_function = {ScopeObjectEnum.NAME: a_name,
-							ScopeObjectEnum.IS_FUNCTION: True, ScopeObjectEnum.PARAMETERS: new_parameters}
+				lua_var = LuaVariable(type_)
+				lua_var._type = type_
+				final_return_types.append(lua_var)
+				SharedFunctions.debug_print(
+					"Could not figure out function return type based on type annotation %s"
+					% type_)
+		# Get the function name and figure out if this function should be a field in a table
+		name = None
+		lua_function = None
+		if isinstance(a_name, Identifier):
+			name = str(a_name)
+			lua_function = LuaFunction(name, final_parameters, final_return_types)
+		elif isinstance(a_name, MemberExpression):# and a_name.operator_type == TokenEnum.COLON:
+			name = str(a_name.identifier)
+			lua_function = LuaFunction(name, final_parameters, final_return_types)
+
+			def get_table(a_base):
+				if isinstance(a_base, MemberExpression):
+					table = get_table(a_base.base)
+					field = table.get_field(str(a_base.identifier))
+					if field:
+						if isinstance(field, LuaTable):
+							return field
+						else:
+							self.raise_error(ParsingError, "'%s' is not a table" % a_base.identifier)
 					else:
-						table_function = {ScopeObjectEnum.NAME: a_name,
-							ScopeObjectEnum.IS_FUNCTION: True, ScopeObjectEnum.PARAMETERS: parameters}
-					if return_type:
-						table_function[ScopeObjectEnum.TYPE] = return_type
-					if functions:
-						functions[str(a_name.identifier)] = table_function
+						self.raise_error(ParsingError, "'%s' does not have a field called '%s'"
+							% (a_base.base, a_base.identifier))
+				elif isinstance(a_base, Identifier):
+					table = self.is_variable_in_scope(a_base)
+					if table:
+						if isinstance(table, LuaTable):
+							return table
+						else:
+							self.raise_error(ParsingError, "'%s' is not a table" % a_base)
 					else:
-						variable[ScopeObjectEnum.FUNCTIONS] = {str(a_name.identifier): table_function}
+						self.raise_error(ParsingError, "'%s' is not a variable that exists" % a_base)
+
+			table = get_table(a_name.base)
+			table.set_field(lua_function, name)
+		# Add function to scope
+		self.push_to_scope(lua_function, a_is_local)
+		self.create_scope()
+		# Add parameters to scope
+		for param in final_parameters:
+			self.push_to_scope(param, True)
 		return FunctionSignature(a_name, parameters, a_is_local)
 
 	#@timed
@@ -1155,9 +1462,9 @@ class Parser(object):
 			if self.consume(TokenEnum.COMMA):
 				step = self.parse_expected_expression()
 			self.expect(TokenEnum.KW_DO)
-			self.push_to_scope({ScopeObjectEnum.NAME: variable, ScopeObjectEnum.TYPE: "number",
-				ScopeObjectEnum.IS_VARIABLE: True}, True)
-			return ForNumericStatement(variable, start, end, step)
+			lua_var = LuaNumber(str(variable), 0)
+			self.push_to_scope(lua_var, True)
+			return ForNumericStatement(lua_var, start, end, step)
 		else:
 			variables = [variable]
 			while self.consume(TokenEnum.COMMA):
@@ -1168,23 +1475,25 @@ class Parser(object):
 			while self.consume(TokenEnum.COMMA):
 				iterators.append(self.parse_expected_expression())
 			self.expect(TokenEnum.KW_DO)
-			i = 0
-			while i < len(variables):
-				self.push_to_scope({ScopeObjectEnum.NAME: variables[i], ScopeObjectEnum.TYPE: "nil",
-					ScopeObjectEnum.IS_VARIABLE: True}, True)
-				i += 1
-			while self.consume(TokenEnum.PREPROCESSOR_COMMAND):
+			variable_types = []
+			if self.consume(TokenEnum.PREPROCESSOR_COMMAND):
 				value = self.processed_tokens[-1].value
 				if value.command == PreprocessorCommandEnum.VARIABLE_TYPES:
-					i = 0
-					arguments_count = len(value.arguments)
-					while i < len(variables):
-						if i < arguments_count:
-							self.push_to_scope({ScopeObjectEnum.NAME: variables[i],
-								ScopeObjectEnum.TYPE: value.arguments[i],
-								ScopeObjectEnum.IS_VARIABLE: True}, False)
-						i += 1
-			return ForGenericStatement(variables, iterators)
+					for arg in value.arguments:
+						variable_types.append(arg)
+			final_variables = []
+			i = 0
+			variable_types_count = len(variable_types)
+			for var in variables:
+				if i < variable_types_count:
+					lua_var = self.get_lua_variable(variable_types[i], str(var))
+					final_variables.append(lua_var)
+				else:
+					final_variables.append(LuaVariable(str(var)))
+				i += 1
+			for var in final_variables:
+				self.push_to_scope(var, True)
+			return ForGenericStatement(final_variables, iterators)
 
 	#@timed
 	def parse_goto_statement(self):
@@ -1210,29 +1519,73 @@ class Parser(object):
 					self.raise_error(ParsingError, "Expected an expression")
 				variables.append(exp)
 			self.expect(TokenEnum.OP_ASSIGN)
-			initial_values = [self.parse_expected_expression()]
+			initial_values = []
+			init_expr = self.parse_expected_expression()
+			init_val = self.node_visitor(init_expr)
+			if isinstance(init_val, list):
+				initial_values.extend(init_val)
+			else:
+				initial_values.append(init_val)
 			while self.consume(TokenEnum.COMMA):
-				initial_values.append(self.parse_expected_expression())
-			i = 0
-			while i < len(variables):
-				self.push_to_scope({ScopeObjectEnum.NAME: variables[i],
-					ScopeObjectEnum.TYPE: self.node_visitor(initial_values[i]),
-					ScopeObjectEnum.IS_VARIABLE: True})
-				i += 1
-			while self.consume(TokenEnum.PREPROCESSOR_COMMAND):
+				init_expr = self.parse_expected_expression()
+				init_val = self.node_visitor(init_expr)
+				if isinstance(init_val, list):
+					initial_values.extend(init_val)
+				else:
+					initial_values.append(init_val)
+			variable_types = []
+			if self.consume(TokenEnum.PREPROCESSOR_COMMAND):
 				value = self.processed_tokens[-1].value
 				if value.command == PreprocessorCommandEnum.VARIABLE_TYPES:
-					i = 0
-					arguments_count = len(value.arguments)
-					while i < len(variables):
-						if i < arguments_count:
-							self.push_to_scope({ScopeObjectEnum.NAME: variables[i],
-								ScopeObjectEnum.TYPE: value.arguments[i],
-								ScopeObjectEnum.IS_VARIABLE: True}, False)
-						i += 1
-			return AssignmentStatement(variables, initial_values)
+					for arg in value.arguments:
+						variable_types.append(arg)
+			final_variables = []
+			i = 0
+			variable_types_count = len(variable_types)
+			initial_values_count = len(initial_values)
+			for var in variables:
+				if isinstance(var, Identifier):
+					if i < variable_types_count:
+						lua_var = self.get_lua_variable(variable_types[i], str(var))
+						final_variables.append(lua_var)
+					elif i < initial_values_count:
+						lua_var = initial_values[i]
+						lua_var._name = str(var)
+						final_variables.append(lua_var)
+					else:
+						final_variables.append(LuaNil(str(var)))
+				elif isinstance(var, IndexExpression):
+					lua_table = self.node_visitor(var.base)
+					index = self.node_visitor(var.expression)
+					if i < variable_types_count:
+						lua_table.set_field(self.get_lua_variable(variable_types[i], index.get_value()), index.get_value())
+					elif i < initial_values_count:
+						lua_var = initial_values[i]
+						lua_var._name = index.get_value()
+						lua_table.set_field(lua_var, index.get_value())
+					else:
+						lua_table.set_field(LuaVariable(index.get_value()), index.get_value())
+				elif isinstance(var, MemberExpression):
+					lua_table = self.node_visitor(var.base)
+					index = str(var.identifier)
+					if i < variable_types_count:
+						lua_table.set_field(self.get_lua_variable(variable_types[i], index), index)
+					elif i < initial_values_count:
+						lua_var = initial_values[i]
+						lua_var._name = index
+						lua_table.set_field(lua_var, index)
+					else:
+						lua_table.set_field(LuaVariable(index), index)
+				else:
+					SharedFunctions.debug_print("Unknown var type in parse_assignment_or_call_statement", var, type(var), str(var))
+				i += 1
+			# Add variables to scope
+			for var in final_variables:
+				self.push_to_scope(var, False)
+			return AssignmentStatement(final_variables, initial_values)
 		if not expression:
 			self.raise_error(ParsingError, "Expected a call statement")
+		self.node_visitor(expression)
 		return CallStatement(expression)
 
 	#@timed
@@ -1248,7 +1601,7 @@ class Parser(object):
 	#@timed
 	def parse_expression(self):
 		expression = self.parse_sub_expression(0)
-		self.node_visitor(expression)
+		#self.node_visitor(expression)
 		return expression
 
 	#@timed
@@ -1368,80 +1721,24 @@ class Parser(object):
 	def parse_call_expression(self, a_base):
 		def expect_parameter_expression(a_expressions):
 			nth_parameter = len(a_expressions)
-			base_type = None
-			if isinstance(a_base, Identifier):
-				base_type = self.node_visitor(a_base.value)
-			else:
-				base_type = self.node_visitor(a_base.base)
-			class_ = self.scope[0][APIKeyEnum.CLASSES].get(str(base_type), None)
-			if class_:
-				functions = class_.get(ScopeObjectEnum.FUNCTIONS, None)
-				if functions:
-					function = functions.get(str(a_base.identifier), None)
-					if function:
-						self.raise_error(ExpectedFunctionParameterExpressionError,
-							"Expected a parameter expression",
-							a_additional_arguments=[function, nth_parameter])
-			function = self.is_function_in_scope(str(a_base))
-			if function:
-				self.raise_error(ExpectedFunctionParameterExpressionError,
-					"Expected a parameter expression for a local function",
-					a_additional_arguments=[function, nth_parameter])
-			function = self.is_namespace_function_in_api(str(a_base))
-			if function:
-				parameters = function.get(ScopeObjectEnum.PARAMETERS, None)
-				if parameters:
-					if (parameters[0].get(ScopeObjectEnum.TYPE) == "table"
-						and parameters[0].get(ScopeObjectEnum.NAME) == "ref"):
-						function = copy.copy(function)
-						function[ScopeObjectEnum.PARAMETERS] = parameters[1:]
-				self.raise_error(ExpectedFunctionParameterExpressionError,
-					"Expected a parameter expression for a namespace function",
-					a_additional_arguments=[function, nth_parameter])
-			class_ = self.scope[0][APIKeyEnum.CLASSES].get(str(a_base), None)
-			if class_:
-				functions = class_.get(ScopeObjectEnum.FUNCTIONS, None)
-				if functions:
-					function = functions.get(str(a_base), None)
-					if function:
-						self.raise_error(ExpectedFunctionParameterExpressionError,
-							"Expected a parameter expression for a class constructor",
-							a_additional_arguments=[function, nth_parameter])
-			namespace = self.scope[0][APIKeyEnum.NAMESPACES].get(str(base_type), None)
-			if namespace:
-				functions = namespace.get(ScopeObjectEnum.FUNCTIONS, None)
-				if functions:
-					function = functions.get(str(a_base.identifier), None)
-					if function:
-						self.raise_error(ExpectedFunctionParameterExpressionError,
-							"Expected a parameter expression for a namespace function",
-							a_additional_arguments=[function, nth_parameter])
-			if isinstance(a_base, MemberExpression):
-				variable = self.is_variable_in_scope(str(a_base.base))
-				if variable:
-					functions = variable.get(ScopeObjectEnum.FUNCTIONS, None)
-					if functions:
-						function = functions.get(str(a_base.identifier), None)
-						if function:
-							self.raise_error(ExpectedFunctionParameterExpressionError,
-								"Expected a parameter expression for a local function",
-								a_additional_arguments=[function, nth_parameter])
+			lua_table = self.node_visitor(a_base)
 			self.raise_error(ExpectedFunctionParameterExpressionError,
 				"Expected a parameter expression for a local function",
-				a_additional_arguments=[a_base, nth_parameter])
+				a_additional_arguments=[lua_table, nth_parameter])
 
 		if self.consume(TokenEnum.LEFT_PARENTHESIS):
 			expressions = []
 			if not self.consume(TokenEnum.RIGHT_PARENTHESIS):
 				expression = self.parse_expression()
-				if expression:
-					expressions.append(expression)
-				else:
+				if not expression:
 					expect_parameter_expression(expressions)
+				self.node_visitor(expression)
+				expressions.append(expression)
 				while self.consume(TokenEnum.COMMA):
 					expression = self.parse_expression()
 					if not expression:
 						expect_parameter_expression(expressions)
+					self.node_visitor(expression)
 					expressions.append(expression)
 				if not self.consume(TokenEnum.RIGHT_PARENTHESIS):
 					expect_parameter_expression(expressions)
@@ -1455,13 +1752,42 @@ class Parser(object):
 
 	#@timed
 	def parse_primary_expression(self):
-		if (self.peek(TokenEnum.STRING, 0) or self.peek(TokenEnum.NUMBER, 0)
-			or self.peek(TokenEnum.KW_TRUE, 0) or self.peek(TokenEnum.KW_FALSE, 0)
-			or self.peek(TokenEnum.KW_NIL, 0) or self.peek(TokenEnum.VARARG, 0)):
+		if self.peek(TokenEnum.STRING, 0):
 			type_ = self.tokens_to_process[0].type
 			value = self.tokens_to_process[0].value
 			self.next()
 			return Literal(type_, value)
+		elif self.peek(TokenEnum.NUMBER, 0):
+			type_ = self.tokens_to_process[0].type
+			value = None
+			try:
+				value = int(self.tokens_to_process[0].value)
+			except ValueError:
+				value = float(self.tokens_to_process[0].value)		
+			self.next()
+			return Literal(type_, value)
+		elif self.peek(TokenEnum.KW_TRUE, 0):
+			type_ = self.tokens_to_process[0].type
+			value = True
+			self.next()
+			return Literal(type_, value)
+		elif self.peek(TokenEnum.KW_FALSE, 0):
+			type_ = self.tokens_to_process[0].type
+			value = False
+			self.next()
+			return Literal(type_, value)
+		elif self.peek(TokenEnum.KW_NIL, 0):
+			type_ = self.tokens_to_process[0].type
+			value = None
+			self.next()
+			return Literal(type_, value)
+		elif self.peek(TokenEnum.VARARG, 0):
+			type_ = self.tokens_to_process[0].type
+			value = self.tokens_to_process[0].value
+			self.next()
+			lua_table = LuaTable("")
+			lua_table.set_field(0, "n")
+			return Literal(type_, lua_table)
 		elif self.consume(TokenEnum.KW_FUNCTION):
 			return self.parse_function_declaration(None, False)
 		elif self.consume(TokenEnum.LEFT_CURLY_BRACE):
@@ -1476,13 +1802,18 @@ class Parser(object):
 				self.expect(TokenEnum.RIGHT_BRACKET)
 				self.expect(TokenEnum.OP_ASSIGN)
 				value = self.parse_expected_expression()
-				fields.append(TableKey(key, value))
+				if PYTHON_VERSION[0] >= 3 and isinstance(key, Literal) and isinstance(key.value, str):
+					fields.append(TableKey(key.value, value))
+				elif PYTHON_VERSION[0] == 2 and isinstance(key, Literal) and (isinstance(key.value, str) or isinstance(key.value, unicode)):
+					fields.append(TableKey(key.value, value))
+				else:
+					fields.append(TableKey(key, value))
 			elif self.peek(TokenEnum.NAME, 0):
 				if self.peek(TokenEnum.OP_ASSIGN, 1):
 					key = self.parse_identifier()
 					self.next()
 					value = self.parse_expected_expression()
-					fields.append(TableKeyString(key, value))
+					fields.append(TableKeyString(str(key), value))
 				else:
 					value = self.parse_expected_expression()
 					fields.append(TableValue(value))
@@ -1495,7 +1826,8 @@ class Parser(object):
 				self.next()
 				continue
 			break
-		self.expect(TokenEnum.RIGHT_CURLY_BRACE)
+		if not self.consume(TokenEnum.RIGHT_CURLY_BRACE):
+			self.raise_error(ExpectedExpressionError, "Expected %s" % TOKEN_DESCRIPTION[TokenEnum.RIGHT_CURLY_BRACE])
 		return TableConstructorExpression(fields)
 
 	#@timed
@@ -1535,8 +1867,7 @@ class Parser(object):
 
 	#@timed
 	def node_visitor(self, a_node, a_previous = None, a_indent = "\t"):
-		result = "undefined"
-		calling_function = False
+		result = None
 		indent_step = "\t"
 #		SharedFunctions.debug_print(a_indent, "Entering", str(a_node), type(a_node), "with", str(a_previous))
 		type_ = type(a_node)
@@ -1544,54 +1875,77 @@ class Parser(object):
 			lexp = self.node_visitor(a_node.left_expression, a_indent=a_indent + indent_step)
 			rexp = self.node_visitor(a_node.right_expression, a_indent=a_indent + indent_step)
 			if self.is_arithmetic_operator(a_node.operator_type):
-				result = "number"
+				result = LuaNumber("", 0)
 			elif self.is_comparison_operator(a_node.operator_type):
-				result = "boolean"
+				result = LuaBoolean("", False)
 			elif self.is_bitwise_operator(a_node.operator_type):
-				result = "number"
+				result = LuaNumber("", 0)
 			elif a_node.operator_type == TokenEnum.OP_CONCAT:
-				result = "string"
+				result = LuaString("", "")
 			else:
 				self.raise_error(ParsingError, "Unsupported binary operator %s"
 					% TOKEN_DESCRIPTION[a_node.operator_type])
 		elif type_ == UnaryExpression:
 			exp = self.node_visitor(a_node.expression, a_indent=a_indent + indent_step)
 			if a_node.operator_type == TokenEnum.OP_LEN:
-				result = "number"
+				result = LuaNumber("", 0)
 			elif a_node.operator_type == TokenEnum.OP_SUB:
 				result = exp
 			elif a_node.operator_type == TokenEnum.OP_BIT_NOT_XOR:
-				result = "number"
+				result = LuaNumber("", 0)
 			elif a_node.operator_type == TokenEnum.KW_NOT:
-				result = "boolean"
+				result = LuaBoolean("", False)
 		elif type_ == Literal:
-			if a_node.type == TokenEnum.NUMBER:
-				result = "number"
-			elif a_node.type == TokenEnum.STRING:
-				result = "string"
-			elif a_node.type == TokenEnum.KW_TRUE:
-				result = "true"
-			elif a_node.type == TokenEnum.KW_FALSE:
-				result = "false"
-			elif a_node.type == TokenEnum.KW_NIL:
-				result = "nil"
+			if a_previous:
+				if isinstance(a_previous, LuaTable):
+					exists = a_previous.get_field(a_node.value)
+					if exists:
+						result = exists
+					else:
+						result = LuaNil("")
+			else:
+				if a_node.type == TokenEnum.NUMBER:
+					result = LuaNumber("", a_node.value)
+				elif a_node.type == TokenEnum.STRING:
+					result = LuaString("", a_node.value)
+				elif a_node.type == TokenEnum.KW_TRUE:
+					result = LuaBoolean("", a_node.value)
+				elif a_node.type == TokenEnum.KW_FALSE:
+					result = LuaBoolean("", a_node.value)
+				elif a_node.type == TokenEnum.KW_NIL:
+					result = LuaNil("")
 		elif type_ == MemberExpression:
-			if a_node.operator_type == TokenEnum.COLON:
-				calling_function = True
 			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)
-			result = self.node_visitor(a_node.identifier, NodeResult(result.type, calling_function),
-				a_indent=a_indent + indent_step)
+			result = self.node_visitor(a_node.identifier, result, a_indent=a_indent + indent_step)
+			if result and a_node.operator_type == TokenEnum.COLON and not isinstance(result, LuaFunction):
+				self.raise_error(ParsingError, "'%s' is not a function" % result.get_name())
 		elif type_ == IndexExpression:
 			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)
+			result = self.node_visitor(a_node.expression, result, a_indent=a_indent + indent_step)
 		elif type_ == TableConstructorExpression:
-			result = "table"
+			lua_table = LuaTable("")
+			i = 1
+			fields = []
+			for field in a_node.fields:
+				field_result = self.node_visitor(field)
+				if isinstance(field_result, list):
+					field_result = field_result[0]
+				if isinstance(field, TableValue):
+					field_result._name = i
+					lua_table.set_field(field_result, i)
+					i += 1
+				elif isinstance(field, TableKey):
+					field_result._name = field.key
+					lua_table.set_field(field_result, field.key)
+				elif isinstance(field, TableKeyString):
+					field_result._name = field.key
+					lua_table.set_field(field_result, field.key)
+			result = lua_table
 		elif type_ == TableValue:
 			result = self.node_visitor(a_node.value, a_indent=a_indent + indent_step)
 		elif type_ == TableKeyString:
-			result = self.node_visitor(a_node.key, a_indent=a_indent + indent_step)
 			result = self.node_visitor(a_node.value, a_indent=a_indent + indent_step)
 		elif type_ == TableKey:
-			result = self.node_visitor(a_node.key, a_indent=a_indent + indent_step)
 			result = self.node_visitor(a_node.value, a_indent=a_indent + indent_step)
 		elif type_ == StringCallExpression:
 			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)
@@ -1600,249 +1954,136 @@ class Parser(object):
 			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)
 			result = self.node_visitor(a_node.table, a_indent=a_indent + indent_step)
 		elif type_ == CallExpression:
-			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)
+			result = self.node_visitor(a_node.base, a_indent=a_indent + indent_step)			
+			if result and isinstance(result, LuaFunction):
+				return_types = result.get_return_types()
+				if return_types:
+					result_types = []
+					for return_type in return_types:
+						if PYTHON_VERSION[0] >= 3 and isinstance(return_type, str):
+							if return_type == "integer" or return_type == "float":
+								return_type = "number"
+							result_types.append(self.get_lua_variable(return_type, ""))
+						elif PYTHON_VERSION[0] == 2 and (isinstance(return_type, str) or isinstance(return_type, unicode)):
+							if return_type == "integer" or return_type == "float":
+								return_type = "number"
+							result_types.append(self.get_lua_variable(return_type, ""))
+						else:
+							result_types.append(return_type)
+					if result_types:
+						result = result_types
+				else:
+					result = LuaNil("")
 			if a_node.expressions: # Arguments
 				for argument in a_node.expressions:
 					self.node_visitor(argument, a_indent=a_indent + indent_step)
 		elif type_ == Identifier:
-			if not a_previous:
-				variable = self.is_variable_in_scope(a_node)
-				if variable:
-					variable_type = variable.get(ScopeObjectEnum.TYPE, None)
-					if variable_type:
-						result = variable_type
-				else:
-					parameter = self.is_parameter_in_scope(a_node)
-					if parameter:
-						parameter_type = parameter.get(ScopeObjectEnum.TYPE, None)
-						if parameter_type:
-							result = parameter_type
+			if a_previous:
+				if isinstance(a_previous, list):
+					a_previous = a_previous[0]
+				if isinstance(a_previous, LuaFunction):
+					return_types = a_previous.get_return_types()
+					if return_types:
+						a_previous = self.get_lua_variable(return_types[0], "")
+				if isinstance(a_previous, LuaTable):
+					exists = a_previous.get_field(str(a_node))
+					if exists:
+						result = exists
 					else:
-						enum = self.is_enum_in_api(a_node)
-						if enum:
-							result = str(a_node)
-						else:
-							function = self.is_function_in_api(a_node)
-							if function:
-								result = function.get(ScopeObjectEnum.TYPE, "nil")
-							else:
-								namespace = self.is_namespace_in_api(a_node)
-								if namespace:
-									result = str(a_node)
-								else:
-									namespace_function = self.is_namespace_function_in_api(a_node)
-									if namespace_function:
-										result = namespace_function.get(ScopeObjectEnum.TYPE, "nil")
-#									else:
-#										self.raise_error(ParsingError, "Could not figure out what '%s' is"
-#											% a_node)
+						result = LuaNil(str(a_node))
+				elif isinstance(a_previous, LuaString):
+					exists = self.standard_libraries_scope["string"].get_field(str(a_node))
+					if exists:
+						result = exists
+					else:
+						result = LuaNil(str(a_node))
 			else:
-				class_ = self.is_class_in_api(a_previous)
-				if class_:
-					if a_previous.calling_function:
-						functions = class_.get(ScopeObjectEnum.FUNCTIONS, None)
-						if functions:
-							function = functions.get(str(a_node), None)
-							if function:
-								returns = function.get(ScopeObjectEnum.RETURNS, None)
-								if returns:
-									result = returns[ScopeObjectEnum.TYPE]
-								else:
-									result = "nil"
-							else:
-								self.raise_error(ParsingError,
-									"'%s' class does not have a function called '%s'"
-									% (a_previous, a_node))
-					else:
-						attributes = class_.get(ScopeObjectEnum.ATTRIBUTES, None)
-						if attributes:
-							attribute = attributes.get(str(a_node), None)
-							if attribute:
-								result = attribute[ScopeObjectEnum.TYPE]
-							else:
-								functions = class_.get(ScopeObjectEnum.FUNCTIONS, None)
-								if functions:
-									function = functions.get(str(a_node), None)
-									if function:
-										returns = function.get(ScopeObjectEnum.RETURNS, None)
-										if returns:
-											result = returns[ScopeObjectEnum.TYPE]
-										else:
-											result = "nil"
-									else:
-										self.raise_error(ParsingError,
-											"'%s' class does not have an attribute or a function called '%s'"
-											% (a_previous, a_node))
-				if not class_:
-					namespace = self.is_namespace_in_api(a_previous)
-					if namespace:
-						functions = namespace.get(ScopeObjectEnum.FUNCTIONS, None)
-						if functions:
-							function = functions.get(str(a_node), None)
-							if function:
-								returns = function.get(ScopeObjectEnum.RETURNS, None)
-								if returns:
-									result = returns[ScopeObjectEnum.TYPE]
-								else:
-									result = "nil"
-							else:
-								self.raise_error(ParsingError,
-									"'%s' namespace does not have a function called '%s'"
-									% (a_previous, a_node))
-					if not namespace:
-						enum = self.is_enum_in_api(a_previous)
-						if enum:
-							name = str(a_node)
-							found = False
-							for member in enum.get(ScopeObjectEnum.MEMBERS, []):
-								if member[ScopeObjectEnum.NAME] == name:
-									found = True
-									result = "number"
-									break
-							if not found:
-								self.raise_error(ParsingError,
-									"'%s' enum does not have an enumerator called '%s'"
-									% (a_previous, a_node))
-
-		elif type_ == list:
-			for expression in a_node:
-				self.node_visitor(expression, a_indent=a_indent + indent_step)
+				exists = self.is_variable_in_scope(str(a_node))
+				if exists:
+					result = exists
+				else:
+					self.raise_error(ParsingError, "'%s' is not a known variable" % a_node)
 #		else:
 #			SharedFunctions.debug_print(a_indent, "Unknown node type", type_)
 #		SharedFunctions.debug_print(a_indent, "Exiting", str(a_node), type(a_node), "with", str(result))
-		return NodeResult(result, calling_function)
-
-def get_variable_completion(a_name, a_type):
-	a_type = "%s " % a_type
-	return (("%s\t%svar." % (a_name.lower(), a_type)).strip(), a_name,)
-
-def get_parameter_completion(a_name, a_type):
-	a_type = "%s " % a_type
-	return (("%s\t%sparam." % (a_name.lower(), a_type)).strip(), a_name,)
-
-def get_function_completion(a_name, a_type, a_parameters):
-	a_type = "%s " % a_type
-	parameters = []
-	i = 1
-	for param in a_parameters:
-		if isinstance(param, dict):
-			parameters.append("${%d:%s}" % (i, param.get(ScopeObjectEnum.NAME, "<name>")))
-		else:
-			parameters.append("${%d:%s}" % (i, param))
-		i += 1
-	return (("%s\t%sfunc." % (a_name.lower(), a_type)).strip(), "%s(%s)" % (a_name, ", ".join(parameters)),)
-
-def get_function_as_attribute_completion(a_name, a_type):
-	a_type = "%s " % a_type
-	return (("%s\t%sfunc." % (a_name.lower(), a_type)).strip(), a_name,)
-
-def get_constructor_completion(a_name, a_type, a_parameters):
-	a_type = "%s " % a_type
-	parameters = []
-	i = 1
-	for param in a_parameters:
-		parameters.append("${%d:%s}" % (i, param))
-		i += 1
-	return (("%s\t%sconstr." % (a_name.lower(), a_type)).strip(), "%s(%s)" % (a_name, ", ".join(parameters)),)
-
-def get_namespace_completion(a_name):
-	return ("%s\tnamespace" % a_name.lower(), a_name,)
-
-def get_enum_completion(a_name):
-	return ("%s\tenum" % a_name.lower(), a_name,)
-
-def get_attribute_completion(a_name, a_type):
-	a_type = "%s " % a_type
-	return (("%s\t%sattr." % (a_name.lower(), a_type)).strip(), a_name,)
-
-def get_all_namespace_completions(a_scope_list, a_functions_only):
-	result = []
-	for name, namespace in a_scope_list[0].get(APIKeyEnum.NAMESPACES, {}).items():
-		if not a_functions_only:
-			result.append(get_namespace_completion(name))
-		for function_key, function in namespace.get(ScopeObjectEnum.FUNCTIONS, {}).items():
-			returns = function.get(APIKeyEnum.RETURNS, "")
-			if returns:
-				returns = returns[APIKeyEnum.TYPE]
-
-			parameters = function.get(APIKeyEnum.PARAMETERS, [])
-			if parameters:
-				if (parameters[0].get(APIKeyEnum.TYPE, "") == "table"
-					and parameters[0].get(APIKeyEnum.NAME, "") == "ref"):
-					parameters = [param.get(APIKeyEnum.NAME, "<arg>")
-						for param in parameters[1:]]
-				else:
-					parameters = [param.get(APIKeyEnum.NAME, "<arg>")
-						for param in parameters]
-			result.append(get_function_completion(function_key, returns, parameters))
-	return result
-
-def get_all_base_script_completions(a_scope_list):
-	result = []
-	if not a_scope_list:
 		return result
-	variables = {}
-	parameters = {}
-	functions = {}
-	for scope in reversed(a_scope_list[1:]):
-		for name, scope_object in scope.items():
-			if scope_object.get(ScopeObjectEnum.IS_VARIABLE, False):
-				if not variables.get(name, None):
-					variables[name] = scope_object
-			elif scope_object.get(ScopeObjectEnum.IS_PARAMETER, False):
-				if not parameters.get(name, None):
-					parameters[name] = scope_object
-			elif scope_object.get(ScopeObjectEnum.IS_FUNCTION, False):
-				if not functions.get(name, None):
-					functions[name] = scope_object
-
-	for name, variable in variables.items():
-		result.append(get_variable_completion(name,
-			variable.get(ScopeObjectEnum.TYPE, "")))
-	for name, parameter in parameters.items():
-		result.append(get_parameter_completion(name,
-			parameter.get(ScopeObjectEnum.TYPE, "")))
-	for name, function in functions.items():
-		result.append(get_function_completion(name,
-			function.get(ScopeObjectEnum.TYPE, ""),
-			[param[ScopeObjectEnum.NAME] if isinstance(param, dict) else str(param) for param
-				in function.get(ScopeObjectEnum.PARAMETERS, [])]))
-
-	for name, function in a_scope_list[0].get(APIKeyEnum.FUNCTIONS, {}).items():
-		if function.get(ScopeObjectEnum.IS_CONSTRUCTOR, False):
-			result.append(get_constructor_completion(name,
-				function.get(ScopeObjectEnum.TYPE, ""),
-				[param[APIKeyEnum.TYPE] for param in function.get(ScopeObjectEnum.PARAMETERS, [])]))
+#@timed
+def get_lua_variable_completion(a_lua_variable, a_functions_as_attributes = False, a_functions_on_instance = True):
+	assert isinstance(a_lua_variable, LuaVariable)
+	variable_type = type(a_lua_variable)
+	contents = a_lua_variable.get_name()
+	if PYTHON_VERSION[0] >= 3 and not isinstance(contents, str):
+		return
+	elif PYTHON_VERSION[0] == 2 and not isinstance(contents, str) and not isinstance(contents, unicode):
+		return
+	trigger = str(a_lua_variable.get_name()).lower()
+	if variable_type == LuaVariable:
+#		if a_lua_variable._type:
+#			return ("%s\t%s var." % (trigger, a_lua_variable._type), contents,)
+#		else:
+		return ("%s\t%s" % (trigger, str(a_lua_variable)), contents,)
+	elif variable_type == LuaNil:
+		return ("%s\tnil" % trigger, contents,)
+	elif variable_type == LuaBoolean:
+		return ("%s\tboolean" % trigger, contents,)
+	elif variable_type == LuaNumber:
+		return ("%s\tnumber" % trigger, contents,)
+	elif variable_type == LuaString:
+		return ("%s\tstring" % trigger, contents,)
+	elif variable_type == LuaFunction:
+		if a_functions_as_attributes:
+			return ("%s\t%s" % (trigger, str(a_lua_variable)), contents,)
 		else:
-			result.append(get_function_completion(name,
-				function.get(ScopeObjectEnum.TYPE, ""),
-				[param[APIKeyEnum.NAME] for param in function.get(ScopeObjectEnum.PARAMETERS, [])]))
+			parameters = []
+			i = 1
+			for param in a_lua_variable.get_parameters():
+				parameters.append("${%d:%s}" % (i, param.get_name()))
+				i += 1
+			if not a_functions_on_instance:
+				parameters.pop(0)
+			return ("%s\t%s" % (trigger, str(a_lua_variable)), "%s(%s)" % (contents, ", ".join(parameters)),)
+	elif variable_type == LuaTable:
+		return ("%s\t%s" % (trigger, str(a_lua_variable)), contents,)
+	elif variable_type == LuaThread:
+		return ("%s\tthread" % trigger, contents,)
+#	elif variable_type == LuaUserdata:
+#		return ("%s\tuserdata" % trigger, contents,)
 
+#@timed
+def get_all_base_script_completions(a_scope_list):
+	results = []
+	for scope in a_scope_list[1:]:
+		for key, value in scope.items():
+			completion = get_lua_variable_completion(value)
+			if completion:
+				results.append(completion)
+	for key, value in a_scope_list[0].items():
+		if key == "file":
+			continue
+		completion = get_lua_variable_completion(value)
+		if completion:
+			results.append(completion)
+	return results
 
-	result.extend(get_all_namespace_completions(a_scope_list, False))
-
-	for name, enum in a_scope_list[0].get(APIKeyEnum.ENUMS, {}).items():
-		result.append(get_enum_completion(name))
-	return result
-
-def get_all_type_completions(a_scope_list):
+#@timed
+def get_all_type_completions(a_classes, a_enums):
 	result = []
-	for class_key in a_scope_list[0].get(APIKeyEnum.CLASSES, []):
+	for class_key in a_classes:
 		result.append(("%s\tclass" % (class_key.lower()), class_key,))
-	for enum_key in a_scope_list[0].get(APIKeyEnum.ENUMS, []):
+	for enum_key in a_enums:
 		result.append(("%s\tenum" % (enum_key.lower()), enum_key,))
 	result.append(("%s\ttype" % ("boolean".lower()), "boolean",))
 	result.append(("%s\ttype" % ("number".lower()), "number",))
 	result.append(("%s\ttype" % ("string".lower()), "string",))
 	result.append(("%s\ttype" % ("table".lower()), "table",))
 	result.append(("%s\ttype" % ("nil".lower()), "nil",))
-	result.append(("%s\ttype" % ("float".lower()), "float",))
-	result.append(("%s\ttype" % ("integer".lower()), "integer",))
 	return result
 
+#@timed
 def clear_linter_highlights(a_view):
 	a_view.erase_regions("subliming_of_isaac_linter_errors")
 
+#@timed
 def add_linter_highlight(a_view, a_line, a_column = None):
 	regions = a_view.get_regions("subliming_of_isaac_linter_errors")
 	if a_column: # Highlight a word
@@ -1870,13 +2111,16 @@ class EventListener(sublime_plugin.EventListener):
 		self.statement_cache = {}
 		self.capable_of_popup = None
 
+	#@timed
 	def scrape_api(self, a_index):
 		if a_index >= 0:
 			sublime.active_window().run_command("subliming_of_isaac_scrape_docs")
 
+	#@timed
 	def add_completions_flags(self, a_completions):
 		return (a_completions, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS,)
 
+	#@timed
 	def on_query_completions(self, a_view, a_prefix, a_locations):
 		settings = SharedFunctions.get_package_settings()
 		if (a_view.scope_name(0).split(" ")[0] in settings.get("completions_scope")
@@ -1909,188 +2153,150 @@ class EventListener(sublime_plugin.EventListener):
 			try: # Successful parsing
 				line = [a for a in self.parser.parse(script_to_cursor, caret_line, scopes, True)]
 				if not line:
-					if not scopes:
-						scopes = self.parser.get_initial_scope()
 					# Functions, namespaces, variables, parameters
-					completions = get_all_base_script_completions(scopes)
+					completions = get_all_base_script_completions(self.parser.scope)
 			except LexingError as error:
-				if PYTHON_VERSION[0] >= 3:
-					sublime.status_message("Lexing error on line %d, column %d: %s" % (error.line, error.column,
-						error.message))
+				if PYTHON_VERSION[0] >= 3: #TODO Remove?
+					sublime.status_message("Lexing error on line %d, column %d: %s"
+						% (error.line, error.column, error.message))
 			except ExpectedNameError as error:
 				try:
-					classes = self.parser.afterbirth_api.get(APIKeyEnum.CLASSES, None)
-					enums = self.parser.afterbirth_api.get(APIKeyEnum.ENUMS, None)
-					functions = self.parser.afterbirth_api.get(APIKeyEnum.FUNCTIONS, None)
-					namespaces = self.parser.afterbirth_api.get(APIKeyEnum.NAMESPACES, None)
-					if not classes or not enums or not functions or not namespaces:
-						SharedFunctions.debug_print("ERROR: Afterbirth+ API is missing one or more major"
-							+ " parts of it (classes, enums, functions, and/or namespaces)")
-						return exit() # Use static completions as a fallback tactic when the API is not working
 					expression_result = self.parser.node_visitor(error.base)
-					if error.preceding_operator_type == TokenEnum.DOT:
-						if str(expression_result) == "table":
-							variable = self.parser.is_variable_in_scope(error.base)
-							if variable and variable.get(ScopeObjectEnum.TYPE, "undefined") == "table":
-								functions = variable.get(ScopeObjectEnum.FUNCTIONS, None)
-								if functions:
-									for function_key, function in functions.items():
-										returns = function.get(ScopeObjectEnum.TYPE, "")
-										completions.append(get_function_as_attribute_completion(function_key,
-											returns))
-						else:
-							class_ = classes.get(str(expression_result), None)
-							if class_:
-								for attribute_key, attribute in class_.get(APIKeyEnum.ATTRIBUTES, {}).items():
-									completions.append(get_attribute_completion(attribute_key,
-										attribute[APIKeyEnum.TYPE]))
-								for function_key, function in class_.get(APIKeyEnum.FUNCTIONS, {}).items():
-									returns = function.get(APIKeyEnum.RETURNS, "")
-									if returns:
-										returns = returns[APIKeyEnum.TYPE]
-									completions.append(get_function_as_attribute_completion(function_key,
-										returns))
-							else:
-								enum = enums.get(str(expression_result), None)
-								if enum:
-									for enumerator in enum.get(APIKeyEnum.MEMBERS, []):
-										contents = enumerator[APIKeyEnum.NAME]
-										name = contents.lower()
-										completions.append(("%s\tenumerator"
-											% (name), contents,))
-								else:
-									namespace = namespaces.get(str(expression_result), None)
-									if namespace:
-										for function_key, function in namespace.get(APIKeyEnum.FUNCTIONS,
-											{}).items():
-											parameters = function.get(APIKeyEnum.PARAMETERS, [])
-											if parameters:
-												if (parameters[0].get(APIKeyEnum.TYPE, "") == "table"
-													and parameters[0].get(APIKeyEnum.NAME, "") == "ref"):
-													continue
-											returns = function.get(APIKeyEnum.RETURNS, "")
-											if returns:
-												returns = returns[APIKeyEnum.TYPE]
-											parameters = [param.get(APIKeyEnum.NAME, "<arg>") for param
-												in function.get(APIKeyEnum.PARAMETERS, [])]
-											completions.append(get_function_completion(function_key,
-												returns, parameters))
-					elif error.preceding_operator_type == TokenEnum.COLON:
-						if str(expression_result) == "table":
-							variable = self.parser.is_variable_in_scope(error.base)
-							if variable and variable.get(ScopeObjectEnum.TYPE, "undefined") == "table":
-								functions = variable.get(ScopeObjectEnum.FUNCTIONS, None)
-								if functions:
-									for function_key, function in functions.items():
-										parameters = function.get(ScopeObjectEnum.PARAMETERS, [])
-										returns = function.get(ScopeObjectEnum.TYPE, "")
-										completions.append(get_function_completion(function_key,
-											returns, parameters))
-							if not scopes:
-								scopes = self.parser.get_initial_scope()
-							completions.extend(get_all_namespace_completions(scopes, True))
-						else:
-							class_ = classes.get(str(expression_result), None)
-							if class_:
-								for function_key, function in class_.get(APIKeyEnum.FUNCTIONS, {}).items():
-									parameters = function.get(APIKeyEnum.PARAMETERS, [])
-									if parameters:
-										if (parameters[0].get(APIKeyEnum.TYPE, "") == "table"
-											and parameters[0].get(APIKeyEnum.NAME, "") == "ref"):
-											parameters = parameters[1:]
-											continue
-									parameters = [param.get(APIKeyEnum.NAME, "<arg>") for param
-										in function.get(APIKeyEnum.PARAMETERS, [])]
-									returns = function.get(APIKeyEnum.RETURNS, "")
-									if returns:
-										returns = returns[APIKeyEnum.TYPE]
-									completions.append(get_function_completion(function_key,
-										returns, parameters))
-					if not completions:
-						if not scopes:
-							scopes = self.parser.get_initial_scope()
-						completions = get_all_base_script_completions(scopes)
+					if not expression_result:
+						completions = get_all_base_script_completions(self.parser.scope)
+					else:
+						type_ = type(expression_result)
+						if type_ == list and expression_result:
+							expression_result = expression_result[0]
+							type_ = type(expression_result)
+						if error.preceding_operator_type == TokenEnum.DOT:
+							if type_ == LuaTable:
+								for field_key, field in expression_result.get_fields():
+									completion = get_lua_variable_completion(field)
+									if completion:
+										completions.append(completion)
+							elif type_ == LuaString:
+								if expression_result.get_name() != "string":
+									string_class = self.parser.scope[0].get("string", None)
+									if string_class:
+										for field_key, field in string_class.get_fields():
+											completion = get_lua_variable_completion(field,
+												a_functions_as_attributes=True)
+											if completion:
+												completions.append(completion)
+						elif error.preceding_operator_type == TokenEnum.COLON:
+							if type_ == LuaTable:
+								for field_key, field in expression_result.get_fields():
+									if isinstance(field, LuaFunction):
+										completion = get_lua_variable_completion(field)
+										if completion:
+											completions.append(completion)
+							elif type_ == LuaString:
+								if expression_result.get_name() != "string":
+									string_class = self.parser.scope[0].get("string", None)
+									if string_class:
+										for field_key, field in string_class.get_fields():
+											completion = get_lua_variable_completion(field,
+												a_functions_on_instance=False)
+											if completion:
+												completions.append(completion)
 				except ParsingError:
-					if not scopes:
-						scopes = self.parser.get_initial_scope()
-					completions = get_all_base_script_completions(scopes)
+					completions = get_all_base_script_completions(self.parser.scope)
 			except ExpectedPreprocessorTypeArgumentError as error:
-				if not scopes:
-					scopes = self.parser.get_initial_scope()
-				completions = get_all_type_completions(self.parser.scope)
+				completions = get_all_type_completions(self.parser.api_classes, self.parser.api_enums)
 			except ExpectedFunctionParameterExpressionError as error:
-				if not scopes:
-					scopes = self.parser.get_initial_scope()
-				completions = get_all_base_script_completions(scopes)
+				completions = get_all_base_script_completions(self.parser.scope)
+#				SharedFunctions.debug_print(error.function, error.nth_parameter)
 				if self.capable_of_popup:
 					# Show popup here
-					if error.function:
-						function_parameters = None
-						function_docstring = ""
-						if isinstance(error.function, dict):
-							parameters = error.function.get(ScopeObjectEnum.PARAMETERS, None)
-							if parameters:
-								function_parameters = []
-								i = 0
-								for parameter in parameters:
-									parameter_type = ""
-									parameter_name = ""
-									if isinstance(parameter, dict):
-										parameter_type = str(parameter.get(ScopeObjectEnum.TYPE, ""))
-										parameter_name = str(parameter.get(ScopeObjectEnum.NAME,
-											"<parameter name>"))
-										
+					if error.function and isinstance(error.function, LuaFunction):
+						function_parameters = []
+						function_docstring = error.function.get_description()
+						if self.parser.api_classes.get(error.function.get_name(), None):
+							if function_docstring != "":
+								function_docstring = ("%s class constructor\n\n%s"
+									% (error.function.get_name(), function_docstring))
+							else:
+								function_docstring = ("%s class constructor"
+									% error.function.get_name())
+						parameters = error.function.get_parameters()
+						if parameters:
+							i = 0
+							for param in parameters:
+								parameter_name = param.get_name()
+								if parameter_name == "...":
+									if i == error.nth_parameter:
+										function_parameters.append("<b>vararg ...</b>")
 									else:
-										parameter_name = str(parameter)
+										function_parameters.append("vararg ...")
+								else:
+									parameter_type = str(param)
+									
+									if parameter_name == "":
+										parameter_name = "param%d" % (i+1)
 									if i == error.nth_parameter:
 										function_parameters.append(("<b>%s %s</b>"
 											% (parameter_type, parameter_name)).strip())
 									else:
 										function_parameters.append(("%s %s"
 											% (parameter_type, parameter_name)).strip())
-									i += 1
-							if (error.function.get(ScopeObjectEnum.IS_CONSTRUCTOR, False)
-								and error.function.get(ScopeObjectEnum.RETURNS, None)):
-								function_docstring = ("%s class constructor"
-									% error.function[ScopeObjectEnum.RETURNS][ScopeObjectEnum.TYPE])
-						if function_parameters:
-							css = """<style>
+								i += 1
+						css = """<style>
 html {
-	background-color: #393939;
+background-color: %s;
 }
 body {
-    font-size: 12px;
-    color: #747369;
+font-size: %spx;
+color: %s;
 }
 b {
-    color: #ffffff;
+color: %s;
 }
 h1 {
-    color: #bfbfbf;
-    font-size: 14px;
+font-size: %spx;
+color: %s;
 }
-</style>"""
-							if function_docstring:
-								function_docstring = "<br><br>%s" % function_docstring
-							content = "%sParameters:<br> %s%s" % (css, "<br> ".join(function_parameters),
-								function_docstring)
+</style>""" % (settings.get("popup_background_color", "#393939"),
+				settings.get("popup_body_font_size", 12),
+				settings.get("popup_body_font_color", "#747369"),
+				settings.get("popup_bold_color", "#ffffff"),
+				settings.get("popup_heading_font_color", 14),
+				settings.get("popup_heading_font_size", "#bfbfbf"))
+						
+						content = ""
+						if function_parameters:
+							content = "Parameters:\n %s" % ("\n ".join(function_parameters))
+						if function_docstring:
+							function_docstring = cgi.escape(function_docstring)
+							if content:
+								content = "%s\n\n%s" % (content, function_docstring)
+							else:
+								content = "%s" % function_docstring
+						if content != "":
+							content = content.replace("\n", "<br>")
+							content = "%s%s" % (css, content)
 							if a_view.is_popup_visible():
 								a_view.update_popup(content)
 							else:
 								a_view.show_popup(content,
 									flags=sublime.COOPERATE_WITH_AUTO_COMPLETE,
-									max_width=600,
-									max_height=300)
+									max_width=settings.get("popup_max_width", 600), #TODO Implement setting?
+									max_height=settings.get("popup_max_height", 300)) #TODO Implement setting?
 			except ExpectedExpressionError as error:
-				if not scopes:
-					scopes = self.parser.get_initial_scope()
-				completions = get_all_base_script_completions(scopes)
+				completions = get_all_base_script_completions(self.parser.scope)
 			except ParsingError as error:
-				if PYTHON_VERSION[0] >= 3:
+				if PYTHON_VERSION[0] >= 3: #TODO Remove?
 					sublime.status_message("Parsing error when completing: %s" % error.message)
 			exit()
+			uniques = {}
+			for comp in completions:
+				uniques[comp[0]] = comp
+			completions = []
+			for key, value in uniques.items():
+				completions.append(value)
 			return self.add_completions_flags(completions)
 
+	#@timed
 	def on_modified(self, a_view):
 		settings = SharedFunctions.get_package_settings()
 		if (a_view.scope_name(0).split(" ")[0] in settings.get("completions_scope")
@@ -2107,6 +2313,7 @@ h1 {
 			thread.daemon = True
 			thread.start()
 
+	#@timed
 	def on_post_save(self, a_view):
 		settings = SharedFunctions.get_package_settings()
 		if (a_view.scope_name(0).split(" ")[0] in settings.get("completions_scope")
@@ -2118,6 +2325,7 @@ h1 {
 			self.queue += 1
 			self.lint(True)
 
+	#@timed
 	def invalidate_statement_cache(self, a_line_index, a_identifier):
 		cache = self.statement_cache.get(a_identifier, None)
 		if not cache:
@@ -2136,17 +2344,20 @@ h1 {
 					break
 		return
 
+	#@timed
 	def get_scope(self, a_line, a_identifier):
 		cache = self.statement_cache.get(a_identifier, None)
 		if not cache:
 			return None
 		return cache[-1][2]
 
+	#@timed
 	def push_statement_cache(self, a_lines, a_identifier):
 		if not a_lines:
 			return
 		self.statement_cache[a_identifier].extend(a_lines)
 
+	#@timed
 	def get_source_to_lint(self, a_line_index, a_identifier):
 		starting_line_index = a_line_index
 		if self.statement_cache[a_identifier]:
@@ -2156,6 +2367,7 @@ h1 {
 		start_point = self.view.text_point(starting_line_index, 0)
 		return self.view.substr(sublime.Region(start_point, self.view.size())), starting_line_index
 
+	#@timed
 	def lint(self, a_on_save = False):
 		self.queue -= 1
 		if self.queue > 0:
@@ -2168,15 +2380,14 @@ h1 {
 			return
 		self.parsing = True
 		start_time = time.time()
+#		SharedFunctions.debug_print("")
 
 		def exit():
 			self.parsing = False
 
-		#self.invalidate_statement_cache(0, self.identifier)
-		#scope = self.get_scope(0, self.identifier)
 		lines = []
 		try:
-			for line in self.parser.parse(self.source_string, 0, None):#scope):
+			for line in self.parser.parse(self.source_string):#, 0)#, None):#scope):
 				if line:
 					lines.append(line)
 		except LexingError as error:
@@ -2209,5 +2420,6 @@ h1 {
 			clear_linter_highlights(self.view)
 		self.parsing = False
 
+	#@timed
 	def error_choice(self, a_index):
 		pass

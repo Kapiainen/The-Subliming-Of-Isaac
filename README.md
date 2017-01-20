@@ -118,6 +118,21 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
+**Version x.x.x - YYYY/MM/DD:**
+- Overhaul of the linter and context-sensitive completion systems.
+    - Switched from 'dict' instances to instances of classes that represent Lua types.
+    - Added support for Lua 5.3's standard libraries.
+    - Added better support for nested tables.
+- Added settings for the appearance of the popup window that shows information about a function:
+    - ***popup_background_color***
+    - ***popup_body_font_size***
+    - ***popup_body_font_color***
+    - ***popup_bold_color***
+    - ***popup_heading_font_color***
+    - ***popup_heading_font_size***
+    - ***popup_max_width***
+    - ***popup_max_height***
+
 **Version 1.3.1 - 2017/01/13:**
 - Temporarily disabled a semantic check that would raise an exception when encountering any name that is not explicitly declared in the current script.
 - Fixed typo that could cause the linter to crash.

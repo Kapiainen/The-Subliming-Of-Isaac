@@ -20,5 +20,29 @@
 	"show_linter_errors_on_save": true,
 
 	//Completions are suggested based on the context. Requires 'enable_linter' to also be true.
-	"context_completions": true
+	"context_completions": true,
+
+	//Popup window's background color. Value is a hex color code (e.g. #FFFFFF for white).
+	"popup_background_color": "#393939",
+
+	//Popup windows' body font size in pixels.
+	"popup_body_font_size": 12,
+
+	//Popup window's body font color. Value is a hex color code (e.g. #FFFFFF for white).
+	"popup_body_font_color": "#929187",
+
+	//Popup window's bold text color. Value is a hex color code (e.g. #FFFFFF for white).
+	"popup_bold_color": "#FFFFFF",
+
+	//Popup windows' heading font size in pixels.
+	"popup_heading_font_color": 14,
+
+	//Popup window's heading color. Value is a hex color code (e.g. #FFFFFF for white).
+	"popup_heading_font_size": "#bfbfbf",
+
+	//Maximum width of the popup window in pixels.
+	"popup_max_width": 600,
+
+	//Maximum height of the popup window in pixels.
+	"popup_max_height": 300
 }
