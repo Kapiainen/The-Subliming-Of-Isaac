@@ -118,7 +118,7 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
-**Version x.x.x - YYYY/MM/DD:**
+**Version 1.4.0 - 2017/01/20:**
 - Overhaul of the linter and context-sensitive completion systems.
     - Switched from 'dict' instances to instances of classes that represent Lua types.
     - Added support for Lua 5.3's standard libraries.
