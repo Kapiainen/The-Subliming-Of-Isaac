@@ -5,6 +5,8 @@ to implement certain additional checks and custom exceptions that are used to im
 completions. luaparse's license is included in the 'luaparse-LICENSE' file.
 """
 import sublime, sublime_plugin, os, sys, json, re, copy, time, threading, cgi
+from collections import namedtuple
+ScopeCache = namedtuple('ScopeCache', ["scope", "starts", "ends"])
 PYTHON_VERSION = sys.version_info
 if PYTHON_VERSION[0] == 2:
 	import imp
@@ -561,6 +563,9 @@ class LuaTable(LuaVariable):
 		else:
 			return "table"
 
+	def __copy__(self):
+		return LuaTable(self._name, copy.copy(self._fields))
+
 	def has_field(self, a_key):
 		if self.get_field(a_key):
 			return True
@@ -1007,6 +1012,32 @@ class Parser(object):
 
 	#@timed
 	def parse(self, a_source_code, a_starting_line_index = 0, a_scope = None, a_completing = False):
+		tokens = []
+		for token in self.tokenize(a_source_code, a_starting_line_index):
+			if token.type != TokenEnum.NEWLINE:
+				tokens.append(token)
+		self.scope = self.get_initial_scope(a_scope)
+		self.tokens_to_process = tokens
+		self.processed_tokens = []
+		statements = []
+		while self.tokens_to_process:
+			line_start = self.tokens_to_process[0].line
+			if self.peek(TokenEnum.EOF, 0):
+				break
+			elif self.consume(TokenEnum.SEMICOLON):
+				pass
+			statement = self.parse_statement()
+			if statement:
+				line_end = self.processed_tokens[-1].line
+				statements.append(statement)
+				#print("Generated:", self.scope[2:])
+				yield ScopeCache([copy.copy(scope) for scope in self.scope[2:]], line_start, line_end)
+				continue
+			break
+		if not a_completing and len(self.scope) > 4:
+			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
+		return
+
 		lines = self.tokenize_lines(a_source_code, a_starting_line_index)
 		self.scope = self.get_initial_scope(a_scope)
 		if not lines:
@@ -1115,7 +1146,7 @@ class Parser(object):
 
 	#@timed
 	def destroy_scope(self):
-		if len(self.scope) > 3:
+		if len(self.scope) > 4:
 			self.scope.pop()
 		else:
 			self.raise_error(ParsingError, "No scope to end")
@@ -1406,6 +1437,7 @@ class Parser(object):
 		# Get the function name and figure out if this function should be a field in a table
 		name = None
 		lua_function = None
+		function_belongs_to_table = False
 		if isinstance(a_name, Identifier):
 			name = str(a_name)
 			lua_function = LuaFunction(name, final_parameters, final_return_types)
@@ -1437,8 +1469,10 @@ class Parser(object):
 
 			table = get_table(a_name.base)
 			table.set_field(lua_function, name)
+			function_belongs_to_table = True
 		# Add function to scope
-		self.push_to_scope(lua_function, a_is_local)
+		if not function_belongs_to_table:
+			self.push_to_scope(lua_function, a_is_local)
 		self.create_scope()
 		# Add parameters to scope
 		for param in final_parameters:
@@ -1601,7 +1635,7 @@ class Parser(object):
 	#@timed
 	def parse_expression(self):
 		expression = self.parse_sub_expression(0)
-		#self.node_visitor(expression)
+		self.node_visitor(expression)
 		return expression
 
 	#@timed
@@ -2101,14 +2135,14 @@ class EventListener(sublime_plugin.EventListener):
 		"parsing",
 		"queue",
 		"view",
-		"statement_cache",
+		"scope_cache",
 		"capable_of_popup"
 	]
 	def __init__(self):
 		self.parser = Parser()
 		self.parsing = False
 		self.queue = 0
-		self.statement_cache = {}
+		self.scope_cache = {}
 		self.capable_of_popup = None
 
 	#@timed
@@ -2148,8 +2182,12 @@ class EventListener(sublime_plugin.EventListener):
 			last_char = None
 			if len(script_to_cursor) > 0:
 				last_char = script_to_cursor[-1]
-			self.invalidate_statement_cache(caret_line, identifier)
+			self.invalidate_scope_cache(caret_line, identifier)
 			scopes = self.get_scope(caret_line, identifier)
+			#print("Retrieving", scopes)
+			if scopes:
+				scopes = scopes.scope
+			#return exit()
 			try: # Successful parsing
 				line = [a for a in self.parser.parse(script_to_cursor, caret_line, scopes, True)]
 				if not line:
@@ -2326,42 +2364,47 @@ color: %s;
 			self.lint(True)
 
 	#@timed
-	def invalidate_statement_cache(self, a_line_index, a_identifier):
-		cache = self.statement_cache.get(a_identifier, None)
+	def invalidate_scope_cache(self, a_line_index, a_identifier):
+		a_line_index += 1
+		cache = self.scope_cache.get(a_identifier, None)
 		if not cache:
-			self.statement_cache[a_identifier] = []
+			self.scope_cache[a_identifier] = []
 			return
 		if a_line_index <= 0: # Invalidation of the entire cache
-			self.statement_cache[a_identifier] = []
+			self.scope_cache[a_identifier] = []
 			return
 		else: # Partial invalidation of the cache
-			a_line_index += 1 # Linter uses 1-based line numbers, view.rowcol() returns 0-based line numbers
-			i = -1
-			for line in cache:
+			i = 0
+			while i < len(cache):
+				#print("Evaluating %s against:" % a_line_index, cache[i])
+				if cache[i].starts >= a_line_index:
+					self.scope_cache[a_identifier] = cache[:i]
+					#print("Remaining:", self.scope_cache[a_identifier])
+					return
 				i += 1
-				if line[0] >= a_line_index:
-					self.statement_cache[a_identifier] = cache[:i]
-					break
+		#print("Failed to invalidate anything")
 		return
 
 	#@timed
 	def get_scope(self, a_line, a_identifier):
-		cache = self.statement_cache.get(a_identifier, None)
+		cache = self.scope_cache.get(a_identifier, None)
+		#print("Retrieving from:", cache)
 		if not cache:
 			return None
-		return cache[-1][2]
+		return cache[-1]#.scope
 
 	#@timed
-	def push_statement_cache(self, a_lines, a_identifier):
-		if not a_lines:
+	def push_scope_cache(self, a_scopes, a_identifier):
+		if not a_scopes:
 			return
-		self.statement_cache[a_identifier].extend(a_lines)
+		self.scope_cache[a_identifier].extend(a_scopes)
+		#print("Pushed to:", self.scope_cache[a_identifier])
 
 	#@timed
 	def get_source_to_lint(self, a_line_index, a_identifier):
 		starting_line_index = a_line_index
-		if self.statement_cache[a_identifier]:
-			starting_line_index = self.statement_cache[a_identifier][-1][0]
+		if self.scope_cache[a_identifier]:
+			starting_line_index = self.scope_cache[a_identifier][-1][0]
 		else:
 			starting_line_index = 0
 		start_point = self.view.text_point(starting_line_index, 0)
@@ -2385,11 +2428,12 @@ color: %s;
 		def exit():
 			self.parsing = False
 
-		lines = []
+		scopes_to_cache = []
+		source_to_store = self.source_string
 		try:
 			for line in self.parser.parse(self.source_string):#, 0)#, None):#scope):
 				if line:
-					lines.append(line)
+					scopes_to_cache.append(line)
 		except LexingError as error:
 			if PYTHON_VERSION[0] >= 3 or a_on_save:
 				sublime.status_message("Lexing error on line %d, column %d: %s" % (error.line, error.column,
@@ -2412,9 +2456,9 @@ color: %s;
 					error_list = [error.message, "Line %d, column %d" % (error.line, error.column)]
 					self.view.window().show_quick_panel([error_list], self.error_choice)
 			return exit()
-		self.invalidate_statement_cache(0, self.identifier)
-		if lines:
-			self.push_statement_cache(lines, self.identifier)
+		self.invalidate_scope_cache(0, self.identifier)
+		if scopes_to_cache:
+			self.push_scope_cache(scopes_to_cache, self.identifier)
 		if PYTHON_VERSION[0] >= 3 or a_on_save:
 			sublime.status_message("Finished linting in %.0f ms" % ((time.time() - start_time)*1000))
 			clear_linter_highlights(self.view)
