@@ -122,6 +122,7 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - Updated linter to handle statements that span multiple lines.
 - Fixed bug that enabled references in cached scopes to be modifiable by the parser.
 - Fixed comment block implementation in the lexer.
+- Implemented implicit declaration of 'self' variable when declaring method with ':' operator.
 
 **Version 1.4.0 - 2017/01/20:**
 - Overhaul of the linter and context-sensitive completion systems.

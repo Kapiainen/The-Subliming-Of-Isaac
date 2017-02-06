@@ -1438,6 +1438,7 @@ class Parser(object):
 		name = None
 		lua_function = None
 		function_belongs_to_table = False
+		table = None
 		if isinstance(a_name, Identifier):
 			name = str(a_name)
 			lua_function = LuaFunction(name, final_parameters, final_return_types)
@@ -1447,8 +1448,8 @@ class Parser(object):
 
 			def get_table(a_base):
 				if isinstance(a_base, MemberExpression):
-					table = get_table(a_base.base)
-					field = table.get_field(str(a_base.identifier))
+					t = get_table(a_base.base)
+					field = t.get_field(str(a_base.identifier))
 					if field:
 						if isinstance(field, LuaTable):
 							return field
@@ -1458,10 +1459,10 @@ class Parser(object):
 						self.raise_error(ParsingError, "'%s' does not have a field called '%s'"
 							% (a_base.base, a_base.identifier))
 				elif isinstance(a_base, Identifier):
-					table = self.is_variable_in_scope(a_base)
-					if table:
-						if isinstance(table, LuaTable):
-							return table
+					t = self.is_variable_in_scope(a_base)
+					if t:
+						if isinstance(t, LuaTable):
+							return t
 						else:
 							self.raise_error(ParsingError, "'%s' is not a table" % a_base)
 					else:
@@ -1475,6 +1476,22 @@ class Parser(object):
 			self.push_to_scope(lua_function, a_is_local)
 		self.create_scope()
 		# Add parameters to scope
+		if table:
+			def implicitly_declare_self(a_function_name, a_parameters):
+				for param in a_parameters:
+					if param.get_name() == "self":
+						return False
+				base = a_function_name
+				while isinstance(base, MemberExpression):
+					if base.operator_type == TokenEnum.COLON:
+						return True
+					base = base.identifier
+				return False
+
+			if implicitly_declare_self(a_name, final_parameters):
+				self_table = LuaTable("self")
+				self_table._fields = table._fields
+				self.push_to_scope(self_table, True)
 		for param in final_parameters:
 			self.push_to_scope(param, True)
 		return FunctionSignature(a_name, parameters, a_is_local)
@@ -1592,24 +1609,30 @@ class Parser(object):
 					lua_table = self.node_visitor(var.base)
 					index = self.node_visitor(var.expression)
 					if i < variable_types_count:
-						lua_table.set_field(self.get_lua_variable(variable_types[i], index.get_value()), index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(self.get_lua_variable(variable_types[i], index.get_value()), index.get_value())
 					elif i < initial_values_count:
 						lua_var = initial_values[i]
 						lua_var._name = index.get_value()
-						lua_table.set_field(lua_var, index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(lua_var, index.get_value())
 					else:
-						lua_table.set_field(LuaVariable(index.get_value()), index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(LuaVariable(index.get_value()), index.get_value())
 				elif isinstance(var, MemberExpression):
 					lua_table = self.node_visitor(var.base)
 					index = str(var.identifier)
 					if i < variable_types_count:
-						lua_table.set_field(self.get_lua_variable(variable_types[i], index), index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(self.get_lua_variable(variable_types[i], index), index)
 					elif i < initial_values_count:
 						lua_var = initial_values[i]
 						lua_var._name = index
-						lua_table.set_field(lua_var, index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(lua_var, index)
 					else:
-						lua_table.set_field(LuaVariable(index), index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(LuaVariable(index), index)
 				else:
 					SharedFunctions.debug_print("Unknown var type in parse_assignment_or_call_statement", var, type(var), str(var))
 				i += 1
@@ -2184,10 +2207,8 @@ class EventListener(sublime_plugin.EventListener):
 				last_char = script_to_cursor[-1]
 			self.invalidate_scope_cache(caret_line, identifier)
 			scopes = self.get_scope(caret_line, identifier)
-			#print("Retrieving", scopes)
 			if scopes:
 				scopes = scopes.scope
-			#return exit()
 			try: # Successful parsing
 				line = [a for a in self.parser.parse(script_to_cursor, caret_line, scopes, True)]
 				if not line:
