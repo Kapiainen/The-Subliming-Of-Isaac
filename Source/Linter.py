@@ -607,7 +607,7 @@ class Parser(object):
 		# Regex patterns used to generate tokens.
 		token_specifications = [
 			(TokenEnum.PREPROCESSOR_COMMAND, r"\-\-\@[^\n\r]*"), # Specific to this parser. Not a part of the Lua language specification!
-			(TokenEnum.BLOCK_COMMENT, r"\-\-\[\[[^\]]*\-\-\]\][^\n\r]*"),
+			(TokenEnum.BLOCK_COMMENT, r"\-\-\[\[.*?\]\]"),
 			(TokenEnum.LINE_COMMENT, r"\-\-[^\n\r]*"),
 			(TokenEnum.NAME, r"[_a-zA-Z][_a-zA-Z0-9]*"),
 			(TokenEnum.DOUBLE_COLON, r"::"),
@@ -649,7 +649,7 @@ class Parser(object):
 			(TokenEnum.NUMBER, r"0[xX][0-9a-fA-F]+[pP][+-]?[0-9]+|0[xX]\.[0-9a-fA-F]+(?:[pP][+-]?[0-9]+)?|0[xX][0-9a-fA-F]+(?:\.[0-9a-fA-F]*(?:[pP][+-]?[0-9]+)?)?|[0-9]+(?:[eE][+-]?[0-9]+)|\.[0-9]+(?:[eE][+-]?[0-9]+)?|[0-9]+(?:\.[0-9]*(?:[eE][+-]?[0-9]+)?)?"),
 			(TokenEnum.UNMATCHED, r"."),
 		]
-		self.token_regex = re.compile("|".join("(?P<t%s>%s)" % pair for pair in token_specifications))
+		self.token_regex = re.compile("|".join("(?P<t%s>%s)" % pair for pair in token_specifications), re.DOTALL)
 		# Regex patterns used to match Lua keywords when a TokenEnum.NAME token has been generated.
 		keyword_specifications = [
 			(TokenEnum.KW_AND, r"and"),
