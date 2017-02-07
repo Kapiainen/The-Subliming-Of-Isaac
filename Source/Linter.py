@@ -1039,7 +1039,7 @@ class Parser(object):
 				yield ScopeCache([copy.deepcopy(scope) for scope in self.scope[2:]], line_start, line_end)
 				continue
 			break
-		if not a_completing and len(self.scope) > 4:
+		if not a_completing and self.scope and len(self.scope) > 4:
 			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
 		return
 
@@ -1120,6 +1120,8 @@ class Parser(object):
 	#@timed
 	def is_in_scope(self, a_name):
 		#a_name = str(a_name)
+		if not self.scope:
+			return None
 		for scope in reversed(self.scope):
 			existing = scope.get(a_name, None)
 			if existing:
@@ -1476,7 +1478,10 @@ class Parser(object):
 
 			if implicitly_declare_self(a_name, final_parameters):
 				self_table = LuaTable("self")
+				self_table._value = table._value
+				self_table._type = table._type
 				self_table._fields = table._fields
+				self_table._inherited_fields = table._inherited_fields
 				self.push_to_scope(self_table, True)
 		for param in final_parameters:
 			self.push_to_scope(param, True)
