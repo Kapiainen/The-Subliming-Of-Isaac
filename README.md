@@ -123,6 +123,7 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - Fixed bug that enabled references in cached scopes to be modifiable by the parser.
 - Fixed comment block implementation in the lexer.
 - Implemented implicit declaration of 'self' variable when declaring method with ':' operator.
+- Fixed bug that could cause the linter to crash.
 
 **Version 1.4.0 - 2017/01/20:**
 - Overhaul of the linter and context-sensitive completion systems.
