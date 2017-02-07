@@ -1031,31 +1031,12 @@ class Parser(object):
 				line_end = self.processed_tokens[-1].line
 				statements.append(statement)
 				#print("Generated:", self.scope[2:])
-				yield ScopeCache([copy.copy(scope) for scope in self.scope[2:]], line_start, line_end)
+				yield ScopeCache([copy.deepcopy(scope) for scope in self.scope[2:]], line_start, line_end)
 				continue
 			break
 		if not a_completing and len(self.scope) > 4:
 			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
 		return
-
-		lines = self.tokenize_lines(a_source_code, a_starting_line_index)
-		self.scope = self.get_initial_scope(a_scope)
-		if not lines:
-			return
-		line_number = 0
-		for line in lines:
-			start_time = time.time()
-			line_number = line[0].line
-			self.tokens_to_process = line
-			self.processed_tokens = []
-			statements = self.parse_line()
-			if statements:
-				yield [line_number, statements, copy.copy(self.scope[2:])]
-				# 0 = Line number.
-				# 1 = List of statements.
-				# 2 = Copy of self.scope after parsing this line of Lua code. Used for caching purposes.
-		if not a_completing and len(self.scope) > 4:
-			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
 
 	#@timed
 	def raise_error(self, a_error_class, a_message, a_line = None, a_column = None,
