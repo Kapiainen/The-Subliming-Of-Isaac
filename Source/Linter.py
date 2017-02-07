@@ -563,8 +563,13 @@ class LuaTable(LuaVariable):
 		else:
 			return "table"
 
-	def __copy__(self):
-		return LuaTable(self._name, copy.copy(self._fields))
+	def __deepcopy__(self, memo):
+		obj = LuaTable(self._name)
+		obj._value = copy.deepcopy(self._value, memo)
+		obj._type = copy.deepcopy(self._type, memo)
+		obj._fields = copy.deepcopy(self._fields, memo)
+		obj._inherited_fields = self._inherited_fields
+		return obj
 
 	def has_field(self, a_key):
 		if self.get_field(a_key):
