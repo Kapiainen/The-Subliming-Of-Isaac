@@ -118,7 +118,7 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
-**Version 1.5.0 - YYYY/MM/DD:**
+**Version 1.5.0 - 2017/02/15:**
 - Updated linter to handle statements that span multiple lines.
 - Fixed bug that enabled references in cached scopes to be modifiable by the parser.
 - Significant performance improvements to deep copying of scopes.
