@@ -118,6 +118,14 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 - A description of what you did when the issue arose. A detailed set of instructions to reproduce the issue would be ideal.
 
 ## **Changelog**
+**Version 1.5.0 - YYYY/MM/DD:**
+- Updated linter to handle statements that span multiple lines.
+- Fixed bug that enabled references in cached scopes to be modifiable by the parser.
+- Significant performance improvements to deep copying of scopes.
+- Fixed comment block implementation in the lexer.
+- Implemented implicit declaration of 'self' variable when declaring method with ':' operator.
+- Fixed bug that could cause the linter to crash.
+
 **Version 1.4.0 - 2017/01/20:**
 - Overhaul of the linter and context-sensitive completion systems.
     - Switched from 'dict' instances to instances of classes that represent Lua types.
@@ -167,3 +175,5 @@ If you find an issue (e.g. something stops working or is behaving oddly), then p
 
 ## **License**
 See [**LICENSE.md**](LICENSE.md) for more information.
+
+This software includes a modified port of luaparse ([repository](https://github.com/oxyc/luaparse), [license](/Source/luaparse-LICENSE)) and official Lua documentation ([website](https://www.lua.org/manual/5.3/manual.html), [license](/Source/lua-LICENSE))

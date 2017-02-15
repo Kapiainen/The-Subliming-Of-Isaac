@@ -5,6 +5,8 @@ to implement certain additional checks and custom exceptions that are used to im
 completions. luaparse's license is included in the 'luaparse-LICENSE' file.
 """
 import sublime, sublime_plugin, os, sys, json, re, copy, time, threading, cgi
+from collections import namedtuple
+ScopeCache = namedtuple('ScopeCache', ["scope", "starts", "ends"])
 PYTHON_VERSION = sys.version_info
 if PYTHON_VERSION[0] == 2:
 	import imp
@@ -561,6 +563,14 @@ class LuaTable(LuaVariable):
 		else:
 			return "table"
 
+	def __deepcopy__(self, memo):
+		obj = LuaTable(self._name)
+		obj._value = copy.deepcopy(self._value, memo)
+		obj._type = copy.deepcopy(self._type, memo)
+		obj._fields = copy.deepcopy(self._fields, memo)
+		obj._inherited_fields = self._inherited_fields
+		return obj
+
 	def has_field(self, a_key):
 		if self.get_field(a_key):
 			return True
@@ -602,7 +612,7 @@ class Parser(object):
 		# Regex patterns used to generate tokens.
 		token_specifications = [
 			(TokenEnum.PREPROCESSOR_COMMAND, r"\-\-\@[^\n\r]*"), # Specific to this parser. Not a part of the Lua language specification!
-			(TokenEnum.BLOCK_COMMENT, r"\-\-\[\[[^\]]*\-\-\]\][^\n\r]*"),
+			(TokenEnum.BLOCK_COMMENT, r"\-\-\[\[.*?\]\]"),
 			(TokenEnum.LINE_COMMENT, r"\-\-[^\n\r]*"),
 			(TokenEnum.NAME, r"[_a-zA-Z][_a-zA-Z0-9]*"),
 			(TokenEnum.DOUBLE_COLON, r"::"),
@@ -644,7 +654,7 @@ class Parser(object):
 			(TokenEnum.NUMBER, r"0[xX][0-9a-fA-F]+[pP][+-]?[0-9]+|0[xX]\.[0-9a-fA-F]+(?:[pP][+-]?[0-9]+)?|0[xX][0-9a-fA-F]+(?:\.[0-9a-fA-F]*(?:[pP][+-]?[0-9]+)?)?|[0-9]+(?:[eE][+-]?[0-9]+)|\.[0-9]+(?:[eE][+-]?[0-9]+)?|[0-9]+(?:\.[0-9]*(?:[eE][+-]?[0-9]+)?)?"),
 			(TokenEnum.UNMATCHED, r"."),
 		]
-		self.token_regex = re.compile("|".join("(?P<t%s>%s)" % pair for pair in token_specifications))
+		self.token_regex = re.compile("|".join("(?P<t%s>%s)" % pair for pair in token_specifications), re.DOTALL)
 		# Regex patterns used to match Lua keywords when a TokenEnum.NAME token has been generated.
 		keyword_specifications = [
 			(TokenEnum.KW_AND, r"and"),
@@ -1007,24 +1017,31 @@ class Parser(object):
 
 	#@timed
 	def parse(self, a_source_code, a_starting_line_index = 0, a_scope = None, a_completing = False):
-		lines = self.tokenize_lines(a_source_code, a_starting_line_index)
+		tokens = []
+		for token in self.tokenize(a_source_code, a_starting_line_index):
+			if token.type != TokenEnum.NEWLINE:
+				tokens.append(token)
 		self.scope = self.get_initial_scope(a_scope)
-		if not lines:
-			return
-		line_number = 0
-		for line in lines:
-			start_time = time.time()
-			line_number = line[0].line
-			self.tokens_to_process = line
-			self.processed_tokens = []
-			statements = self.parse_line()
-			if statements:
-				yield [line_number, statements, copy.copy(self.scope[2:])]
-				# 0 = Line number.
-				# 1 = List of statements.
-				# 2 = Copy of self.scope after parsing this line of Lua code. Used for caching purposes.
-		if not a_completing and len(self.scope) > 4:
+		self.tokens_to_process = tokens
+		self.processed_tokens = []
+		statements = []
+		while self.tokens_to_process:
+			line_start = self.tokens_to_process[0].line
+			if self.peek(TokenEnum.EOF, 0):
+				break
+			elif self.consume(TokenEnum.SEMICOLON):
+				pass
+			statement = self.parse_statement()
+			if statement:
+				line_end = self.processed_tokens[-1].line
+				statements.append(statement)
+				#print("Generated:", self.scope[2:])
+				yield ScopeCache([copy.deepcopy(scope) for scope in self.scope[2:]], line_start, line_end)
+				continue
+			break
+		if not a_completing and self.scope and len(self.scope) > 4:
 			self.raise_error(ParsingError, "Found %d unterminated scope(s)" % (len(self.scope) - 4))
+		return
 
 	#@timed
 	def raise_error(self, a_error_class, a_message, a_line = None, a_column = None,
@@ -1103,6 +1120,8 @@ class Parser(object):
 	#@timed
 	def is_in_scope(self, a_name):
 		#a_name = str(a_name)
+		if not self.scope:
+			return None
 		for scope in reversed(self.scope):
 			existing = scope.get(a_name, None)
 			if existing:
@@ -1115,7 +1134,7 @@ class Parser(object):
 
 	#@timed
 	def destroy_scope(self):
-		if len(self.scope) > 3:
+		if len(self.scope) > 4:
 			self.scope.pop()
 		else:
 			self.raise_error(ParsingError, "No scope to end")
@@ -1406,6 +1425,8 @@ class Parser(object):
 		# Get the function name and figure out if this function should be a field in a table
 		name = None
 		lua_function = None
+		function_belongs_to_table = False
+		table = None
 		if isinstance(a_name, Identifier):
 			name = str(a_name)
 			lua_function = LuaFunction(name, final_parameters, final_return_types)
@@ -1415,8 +1436,8 @@ class Parser(object):
 
 			def get_table(a_base):
 				if isinstance(a_base, MemberExpression):
-					table = get_table(a_base.base)
-					field = table.get_field(str(a_base.identifier))
+					t = get_table(a_base.base)
+					field = t.get_field(str(a_base.identifier))
 					if field:
 						if isinstance(field, LuaTable):
 							return field
@@ -1426,10 +1447,10 @@ class Parser(object):
 						self.raise_error(ParsingError, "'%s' does not have a field called '%s'"
 							% (a_base.base, a_base.identifier))
 				elif isinstance(a_base, Identifier):
-					table = self.is_variable_in_scope(a_base)
-					if table:
-						if isinstance(table, LuaTable):
-							return table
+					t = self.is_variable_in_scope(a_base)
+					if t:
+						if isinstance(t, LuaTable):
+							return t
 						else:
 							self.raise_error(ParsingError, "'%s' is not a table" % a_base)
 					else:
@@ -1437,10 +1458,31 @@ class Parser(object):
 
 			table = get_table(a_name.base)
 			table.set_field(lua_function, name)
+			function_belongs_to_table = True
 		# Add function to scope
-		self.push_to_scope(lua_function, a_is_local)
+		if not function_belongs_to_table:
+			self.push_to_scope(lua_function, a_is_local)
 		self.create_scope()
 		# Add parameters to scope
+		if table:
+			def implicitly_declare_self(a_function_name, a_parameters):
+				for param in a_parameters:
+					if param.get_name() == "self":
+						return False
+				base = a_function_name
+				while isinstance(base, MemberExpression):
+					if base.operator_type == TokenEnum.COLON:
+						return True
+					base = base.identifier
+				return False
+
+			if implicitly_declare_self(a_name, final_parameters):
+				self_table = LuaTable("self")
+				self_table._value = table._value
+				self_table._type = table._type
+				self_table._fields = table._fields
+				self_table._inherited_fields = table._inherited_fields
+				self.push_to_scope(self_table, True)
 		for param in final_parameters:
 			self.push_to_scope(param, True)
 		return FunctionSignature(a_name, parameters, a_is_local)
@@ -1558,24 +1600,30 @@ class Parser(object):
 					lua_table = self.node_visitor(var.base)
 					index = self.node_visitor(var.expression)
 					if i < variable_types_count:
-						lua_table.set_field(self.get_lua_variable(variable_types[i], index.get_value()), index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(self.get_lua_variable(variable_types[i], index.get_value()), index.get_value())
 					elif i < initial_values_count:
 						lua_var = initial_values[i]
 						lua_var._name = index.get_value()
-						lua_table.set_field(lua_var, index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(lua_var, index.get_value())
 					else:
-						lua_table.set_field(LuaVariable(index.get_value()), index.get_value())
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(LuaVariable(index.get_value()), index.get_value())
 				elif isinstance(var, MemberExpression):
 					lua_table = self.node_visitor(var.base)
 					index = str(var.identifier)
 					if i < variable_types_count:
-						lua_table.set_field(self.get_lua_variable(variable_types[i], index), index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(self.get_lua_variable(variable_types[i], index), index)
 					elif i < initial_values_count:
 						lua_var = initial_values[i]
 						lua_var._name = index
-						lua_table.set_field(lua_var, index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(lua_var, index)
 					else:
-						lua_table.set_field(LuaVariable(index), index)
+						if isinstance(lua_table, LuaTable):
+							lua_table.set_field(LuaVariable(index), index)
 				else:
 					SharedFunctions.debug_print("Unknown var type in parse_assignment_or_call_statement", var, type(var), str(var))
 				i += 1
@@ -1601,7 +1649,7 @@ class Parser(object):
 	#@timed
 	def parse_expression(self):
 		expression = self.parse_sub_expression(0)
-		#self.node_visitor(expression)
+		self.node_visitor(expression)
 		return expression
 
 	#@timed
@@ -2101,14 +2149,14 @@ class EventListener(sublime_plugin.EventListener):
 		"parsing",
 		"queue",
 		"view",
-		"statement_cache",
+		"scope_cache",
 		"capable_of_popup"
 	]
 	def __init__(self):
 		self.parser = Parser()
 		self.parsing = False
 		self.queue = 0
-		self.statement_cache = {}
+		self.scope_cache = {}
 		self.capable_of_popup = None
 
 	#@timed
@@ -2148,8 +2196,10 @@ class EventListener(sublime_plugin.EventListener):
 			last_char = None
 			if len(script_to_cursor) > 0:
 				last_char = script_to_cursor[-1]
-			self.invalidate_statement_cache(caret_line, identifier)
+			self.invalidate_scope_cache(caret_line, identifier)
 			scopes = self.get_scope(caret_line, identifier)
+			if scopes:
+				scopes = scopes.scope
 			try: # Successful parsing
 				line = [a for a in self.parser.parse(script_to_cursor, caret_line, scopes, True)]
 				if not line:
@@ -2326,42 +2376,47 @@ color: %s;
 			self.lint(True)
 
 	#@timed
-	def invalidate_statement_cache(self, a_line_index, a_identifier):
-		cache = self.statement_cache.get(a_identifier, None)
+	def invalidate_scope_cache(self, a_line_index, a_identifier):
+		a_line_index += 1
+		cache = self.scope_cache.get(a_identifier, None)
 		if not cache:
-			self.statement_cache[a_identifier] = []
+			self.scope_cache[a_identifier] = []
 			return
 		if a_line_index <= 0: # Invalidation of the entire cache
-			self.statement_cache[a_identifier] = []
+			self.scope_cache[a_identifier] = []
 			return
 		else: # Partial invalidation of the cache
-			a_line_index += 1 # Linter uses 1-based line numbers, view.rowcol() returns 0-based line numbers
-			i = -1
-			for line in cache:
+			i = 0
+			while i < len(cache):
+				#print("Evaluating %s against:" % a_line_index, cache[i])
+				if cache[i].starts >= a_line_index:
+					self.scope_cache[a_identifier] = cache[:i]
+					#print("Remaining:", self.scope_cache[a_identifier])
+					return
 				i += 1
-				if line[0] >= a_line_index:
-					self.statement_cache[a_identifier] = cache[:i]
-					break
+		#print("Failed to invalidate anything")
 		return
 
 	#@timed
 	def get_scope(self, a_line, a_identifier):
-		cache = self.statement_cache.get(a_identifier, None)
+		cache = self.scope_cache.get(a_identifier, None)
+		#print("Retrieving from:", cache)
 		if not cache:
 			return None
-		return cache[-1][2]
+		return cache[-1]#.scope
 
 	#@timed
-	def push_statement_cache(self, a_lines, a_identifier):
-		if not a_lines:
+	def push_scope_cache(self, a_scopes, a_identifier):
+		if not a_scopes:
 			return
-		self.statement_cache[a_identifier].extend(a_lines)
+		self.scope_cache[a_identifier].extend(a_scopes)
+		#print("Pushed to:", self.scope_cache[a_identifier])
 
 	#@timed
 	def get_source_to_lint(self, a_line_index, a_identifier):
 		starting_line_index = a_line_index
-		if self.statement_cache[a_identifier]:
-			starting_line_index = self.statement_cache[a_identifier][-1][0]
+		if self.scope_cache[a_identifier]:
+			starting_line_index = self.scope_cache[a_identifier][-1][0]
 		else:
 			starting_line_index = 0
 		start_point = self.view.text_point(starting_line_index, 0)
@@ -2385,11 +2440,12 @@ color: %s;
 		def exit():
 			self.parsing = False
 
-		lines = []
+		scopes_to_cache = []
+		source_to_store = self.source_string
 		try:
 			for line in self.parser.parse(self.source_string):#, 0)#, None):#scope):
 				if line:
-					lines.append(line)
+					scopes_to_cache.append(line)
 		except LexingError as error:
 			if PYTHON_VERSION[0] >= 3 or a_on_save:
 				sublime.status_message("Lexing error on line %d, column %d: %s" % (error.line, error.column,
@@ -2412,9 +2468,9 @@ color: %s;
 					error_list = [error.message, "Line %d, column %d" % (error.line, error.column)]
 					self.view.window().show_quick_panel([error_list], self.error_choice)
 			return exit()
-		self.invalidate_statement_cache(0, self.identifier)
-		if lines:
-			self.push_statement_cache(lines, self.identifier)
+		self.invalidate_scope_cache(0, self.identifier)
+		if scopes_to_cache:
+			self.push_scope_cache(scopes_to_cache, self.identifier)
 		if PYTHON_VERSION[0] >= 3 or a_on_save:
 			sublime.status_message("Finished linting in %.0f ms" % ((time.time() - start_time)*1000))
 			clear_linter_highlights(self.view)
