@@ -1291,7 +1291,7 @@ class Parser(object):
 						final_variables.append(LuaVariable(str(var)))
 						SharedFunctions.debug_print(
 							"Could not figure out local variable type based on initial value %s"
-							% expr_result)
+							% initial_values[i])
 				else:
 					final_variables.append(LuaNil(str(var)))
 				i += 1
