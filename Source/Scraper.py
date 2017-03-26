@@ -302,7 +302,7 @@ def scrape_api(a_path):
 				classes_to_process.append(file)
 			elif file == "namespace_isaac.html":
 				namespaces_to_process.append(file)
-			elif file == "group___enumerations.html":
+			elif file == "group__enums.html":
 				enums = parse_enums(os.path.join(a_path, file))
 			elif file == "group___functions.html":
 				functions_name, functions = parse_class(os.path.join(a_path, file))
